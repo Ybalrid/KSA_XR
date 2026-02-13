@@ -17,10 +17,12 @@ namespace KSA_XR
 			{
 				ImGui.Text($"OpenXR Runtime {xr.RuntimeName}");
 				ImGui.Text($"OpenXR System {xr.SystemName}");
+				ImGui.Text($"System's viewconfig type {xr.viewConfigurationType}");
 
 				if (ImGui.Button("Try to start XrSession"))
 				{
-					//TODO 
+					bool status = xr.TryStartSession();
+					Logger.message($"Session creation status is {status}");
 				}
 			}
 			else

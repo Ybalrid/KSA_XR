@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using Evergine.Bindings.OpenXR;
@@ -69,14 +70,18 @@ namespace KSA_XR
 			Marshal.FreeHGlobal((IntPtr)stringListPointers);
 		}
 
-		private unsafe string? PtrToString(byte* ptr)
+		private static unsafe string? PtrToString(byte* ptr)
 		{
 			return Marshal.PtrToStringUTF8((IntPtr)(ptr));
 		}
 
 		XrInstance instance;
-		XrSession session;
+		private  XrSession session;
 		ulong systemId = 0;
+		public readonly XrViewConfigurationType viewConfigurationType;
+
+		XrViewConfigurationView leftEyeView, rightEyeView;
+		XrEnvironmentBlendMode blendModeToUse;
 
 		List<string> runtimeAvailableOpenXRExtensions = new List<string>();
 
@@ -109,6 +114,20 @@ namespace KSA_XR
 			}
 		}
 
+		bool useDebugMessenger = false;
+		[UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+		public static unsafe XrBool32 DebugCallback(XrDebugUtilsMessageSeverityFlagsEXT severity, XrDebugUtilsMessageTypeFlagsEXT type, XrDebugUtilsMessengerCallbackDataEXT* data, void* userData)
+		{
+			if (((ulong)severity & (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) != 0)
+				Logger.error(PtrToString(data->message));
+			else if (((ulong)severity & (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) != 0)
+				Logger.warning(PtrToString(data->message));
+			else
+				Logger.message(PtrToString(data->message));
+			return XR_FALSE;
+		}
+		XrDebugUtilsMessengerEXT DebugUtilsMessenger = new XrDebugUtilsMessengerEXT();
+
 		public OpenXR()
 		{
 			try
@@ -117,8 +136,12 @@ namespace KSA_XR
 				{
 					GetListOfAvailableExtensions();
 
-					CheckAvailableExtension(XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME);
-					CheckAvailableExtension(XR_KHR_VULKAN_ENABLE_EXTENSION_NAME);
+					//CheckRequiredExtensionIsAvailable(XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME);
+					CheckRequiredExtensionIsAvailable(XR_KHR_VULKAN_ENABLE_EXTENSION_NAME);
+
+#if DEBUG
+					useDebugMessenger = CheckOptionalExtensionIsAvailable(XR_EXT_DEBUG_UTILS_EXTENSION_NAME);
+#endif
 
 					var instanceCreateInfo = new XrInstanceCreateInfo();
 					instanceCreateInfo.type = XrStructureType.XR_TYPE_INSTANCE_CREATE_INFO;
@@ -132,9 +155,13 @@ namespace KSA_XR
 
 					var enabledExtensionsCS = new List<string>();
 					enabledExtensionsCS.Add(XR_KHR_VULKAN_ENABLE_EXTENSION_NAME);
-					enabledExtensionsCS.Add(XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME);
-
-					//TODO enable debug messenger
+					//enabledExtensionsCS.Add(XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME);
+#if DEBUG
+					if(useDebugMessenger)
+					{
+						enabledExtensionsCS.Add(XR_EXT_DEBUG_UTILS_EXTENSION_NAME);
+					}
+#endif
 
 					instanceCreateInfo.enabledExtensionCount = (uint)enabledExtensionsCS.Count;
 					instanceCreateInfo.enabledExtensionNames = BuildExtensionListPointer(enabledExtensionsCS);
@@ -182,8 +209,72 @@ namespace KSA_XR
 					Logger.message($"System Name: {PtrToString(systemProperties.systemName)}");
 					SystemName = PtrToString(systemProperties.systemName);
 
-				}
+					uint viewConfigCount = 0;
+					xrEnumerateViewConfigurations(instance, systemId, viewConfigCount, &viewConfigCount, null);
+					var viewConfigurationTypes = stackalloc XrViewConfigurationType[(int)viewConfigCount];
+					xrEnumerateViewConfigurations(instance, systemId, viewConfigCount, &viewConfigCount, viewConfigurationTypes);
+					viewConfigurationType = viewConfigurationTypes[0];
+					Logger.message($"View configuration type {viewConfigurationType}");
 
+					XrViewConfigurationProperties viewConfigurationProperties = new XrViewConfigurationProperties();
+					viewConfigurationProperties.type = XrStructureType.XR_TYPE_VIEW_CONFIGURATION_PROPERTIES;
+					CheckXRCall(xrGetViewConfigurationProperties(instance, systemId, viewConfigurationType, &viewConfigurationProperties));
+
+
+					uint viewConfigViewCount = 0;
+					xrEnumerateViewConfigurationViews(instance, systemId, viewConfigurationType, viewConfigViewCount, &viewConfigViewCount, null);
+					var viewConfigViews = stackalloc XrViewConfigurationView[(int)viewConfigViewCount];
+					for(int i = 0; i < viewConfigViewCount; ++i)
+					{
+						viewConfigViews[i].type = XrStructureType.XR_TYPE_VIEW_CONFIGURATION_VIEW;
+					}
+					xrEnumerateViewConfigurationViews(instance, systemId, viewConfigurationType, viewConfigViewCount, &viewConfigViewCount, viewConfigViews);
+					
+					//Should assert that we have at least 2 views (should also check that primary type is stereo then)
+					leftEyeView = viewConfigViews[0];
+					rightEyeView = viewConfigViews[1];
+
+					Logger.message($"The view configuration is comprised of {viewConfigViewCount} views:");
+					for (int i = 0; i < viewConfigViewCount; ++i)
+					{
+						Logger.message($"\tView config view #{i}");
+						Logger.message($"\t\t- Recommended Width {viewConfigViews[i].recommendedImageRectWidth}");
+						Logger.message($"\t\t- Recommended Height {viewConfigViews[i].recommendedImageRectHeight}");
+						Logger.message($"\t\t- Recommnaded Sample count {viewConfigViews[i].recommendedSwapchainSampleCount}");
+					}
+
+					uint blendModeCount = 0;
+					xrEnumerateEnvironmentBlendModes(instance, systemId, viewConfigurationType, blendModeCount, &blendModeCount, null);
+					var envBlendModes = stackalloc XrEnvironmentBlendMode[(int)blendModeCount];
+					xrEnumerateEnvironmentBlendModes(instance, systemId, viewConfigurationType, blendModeCount, &blendModeCount, envBlendModes);
+
+					blendModeToUse = envBlendModes[0];
+
+					//We should check the Vulkan version in use, strictly speaking.
+					var graphicsRequirements = new XrGraphicsRequirementsVulkanKHR();
+					graphicsRequirements.type = XrStructureType.XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN_KHR;
+					CheckXRCall(xrGetVulkanGraphicsRequirementsKHR(instance, systemId, &graphicsRequirements));
+
+#if DEBUG
+					if(useDebugMessenger)
+					{
+						var DebugUtilMessengerCreateInfo  = new XrDebugUtilsMessengerCreateInfoEXT();
+						DebugUtilMessengerCreateInfo.type = XrStructureType.XR_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+						DebugUtilMessengerCreateInfo.messageSeverities = (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
+													  (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT;
+						DebugUtilMessengerCreateInfo.messageTypes =
+							(ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+							(ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
+
+						DebugUtilMessengerCreateInfo.userCallback = (IntPtr)(delegate* unmanaged[Cdecl]<XrDebugUtilsMessageSeverityFlagsEXT,XrDebugUtilsMessageTypeFlagsEXT , XrDebugUtilsMessengerCallbackDataEXT*, void*, XrBool32>) &DebugCallback;
+
+						var DebugUtilsMessenger = new XrDebugUtilsMessengerEXT();
+						var debugInstallResult = xrCreateDebugUtilsMessengerEXT(instance, &DebugUtilMessengerCreateInfo, &DebugUtilsMessenger);
+						this.DebugUtilsMessenger = DebugUtilsMessenger;
+
+					}
+#endif
+				}
 			}
 			catch (Exception e)
 			{
@@ -191,7 +282,47 @@ namespace KSA_XR
 			}
 		}
 
-		private unsafe void CheckAvailableExtension(string extName)
+		//TODO handle proper session state
+		public bool TryStartSession()
+		{
+			try
+			{
+				var sessionCreateInfo = new XrSessionCreateInfo();
+				sessionCreateInfo.type = XrStructureType.XR_TYPE_SESSION_CREATE_INFO;
+				sessionCreateInfo.systemId = systemId;
+				sessionCreateInfo.createFlags = (ulong)XrSessionCreateFlags.None;
+				var graphicsBinding = vulkanContextInfo;
+
+				unsafe
+				{
+					sessionCreateInfo.next = (void*)&graphicsBinding; //Khronos do love structure chains
+					XrSession session;
+					CheckXRCall(xrCreateSession(instance, &sessionCreateInfo, &session));
+					this.session = session;
+				}
+
+				return true;
+			}
+
+			catch (Exception e)
+			{
+				Logger.error(e.ToString());
+				return false;
+			}
+		
+		}
+
+		public void DestroySession()
+		{
+			xrDestroySession(session);
+			//session.Handle = IntPtr.Zero;
+		}
+
+		private bool CheckOptionalExtensionIsAvailable(string extName)
+		{
+			return runtimeAvailableOpenXRExtensions.Contains(extName);
+		}
+		private unsafe void CheckRequiredExtensionIsAvailable(string extName)
 		{
 			if (!runtimeAvailableOpenXRExtensions.Contains(extName))
 				throw new Exception($"A mandatory OpenXR extension is not available : {extName}");
