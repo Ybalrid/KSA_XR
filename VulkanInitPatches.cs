@@ -179,7 +179,6 @@ namespace KSA_XR
 			var rawInstance = VulkanDeviceContext.Instance.Handle.VkHandle;
 			var rawDevice = VulkanDeviceContext.Device.Handle.VkHandle;
 			var rawPhysicalDevice = VulkanDeviceContext.PhysicalDevice.Handle.VkHandle;
-			var rawQueue = VulkanDeviceContext.Graphics.VkHandle.ToInt64();
 			var queueFamilyIndex = VulkanDeviceContext.Graphics.Family;
 			var queueIndex = VulkanDeviceContext.Graphics.Index;
 

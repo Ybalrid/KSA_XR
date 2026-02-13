@@ -27,6 +27,20 @@ namespace KSA_XR
 			return ((((major) & 0xffff) << 48) | (((minor) & 0xffff) << 32) | ((patch) & 0xffffffff));
 		}
 
+		static ushort XR_VERSION_MAJOR(ulong version)
+		{
+			return (ushort)(((ulong)(version) >> 48) & 0xffff);
+		}
+		static ushort XR_VERSION_MINOR(ulong version)
+		{
+			return (ushort)(((ulong)(version) >> 32) & 0xffff);
+		}
+
+		static uint XR_VERSION_PATCH(ulong version)
+		{
+			return (uint)((ulong)(version) & 0xffffffff);
+		}
+
 		static unsafe void WriteStringToBuffer(string str, byte* buffer, int buffLen = 128)
 		{
 			int len = buffLen - 1 < str.Length ? buffLen : str.Length;
@@ -76,7 +90,7 @@ namespace KSA_XR
 		}
 
 		XrInstance instance;
-		private  XrSession session;
+		private XrSession session;
 		ulong systemId = 0;
 		public readonly XrViewConfigurationType viewConfigurationType;
 
@@ -157,10 +171,8 @@ namespace KSA_XR
 					enabledExtensionsCS.Add(XR_KHR_VULKAN_ENABLE_EXTENSION_NAME);
 					//enabledExtensionsCS.Add(XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME);
 #if DEBUG
-					if(useDebugMessenger)
-					{
+					if (useDebugMessenger)
 						enabledExtensionsCS.Add(XR_EXT_DEBUG_UTILS_EXTENSION_NAME);
-					}
 #endif
 
 					instanceCreateInfo.enabledExtensionCount = (uint)enabledExtensionsCS.Count;
@@ -224,12 +236,12 @@ namespace KSA_XR
 					uint viewConfigViewCount = 0;
 					xrEnumerateViewConfigurationViews(instance, systemId, viewConfigurationType, viewConfigViewCount, &viewConfigViewCount, null);
 					var viewConfigViews = stackalloc XrViewConfigurationView[(int)viewConfigViewCount];
-					for(int i = 0; i < viewConfigViewCount; ++i)
+					for (int i = 0; i < viewConfigViewCount; ++i)
 					{
 						viewConfigViews[i].type = XrStructureType.XR_TYPE_VIEW_CONFIGURATION_VIEW;
 					}
 					xrEnumerateViewConfigurationViews(instance, systemId, viewConfigurationType, viewConfigViewCount, &viewConfigViewCount, viewConfigViews);
-					
+
 					//Should assert that we have at least 2 views (should also check that primary type is stereo then)
 					leftEyeView = viewConfigViews[0];
 					rightEyeView = viewConfigViews[1];
@@ -255,10 +267,13 @@ namespace KSA_XR
 					graphicsRequirements.type = XrStructureType.XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN_KHR;
 					CheckXRCall(xrGetVulkanGraphicsRequirementsKHR(instance, systemId, &graphicsRequirements));
 
+					Logger.message($"Runtime requires vulkan minimum version {XR_VERSION_MAJOR(graphicsRequirements.minApiVersionSupported)}.{XR_VERSION_MINOR(graphicsRequirements.minApiVersionSupported)}.{XR_VERSION_PATCH(graphicsRequirements.minApiVersionSupported)}");
+					Logger.message($"Runtime requires vulkan maximum version {XR_VERSION_MAJOR(graphicsRequirements.maxApiVersionSupported)}.{XR_VERSION_MINOR(graphicsRequirements.maxApiVersionSupported)}.{XR_VERSION_PATCH(graphicsRequirements.maxApiVersionSupported)}");
+
 #if DEBUG
-					if(useDebugMessenger)
+					if (useDebugMessenger)
 					{
-						var DebugUtilMessengerCreateInfo  = new XrDebugUtilsMessengerCreateInfoEXT();
+						var DebugUtilMessengerCreateInfo = new XrDebugUtilsMessengerCreateInfoEXT();
 						DebugUtilMessengerCreateInfo.type = XrStructureType.XR_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
 						DebugUtilMessengerCreateInfo.messageSeverities = (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
 													  (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT;
@@ -266,7 +281,7 @@ namespace KSA_XR
 							(ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
 							(ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
 
-						DebugUtilMessengerCreateInfo.userCallback = (IntPtr)(delegate* unmanaged[Cdecl]<XrDebugUtilsMessageSeverityFlagsEXT,XrDebugUtilsMessageTypeFlagsEXT , XrDebugUtilsMessengerCallbackDataEXT*, void*, XrBool32>) &DebugCallback;
+						DebugUtilMessengerCreateInfo.userCallback = (IntPtr)(delegate* unmanaged[Cdecl]<XrDebugUtilsMessageSeverityFlagsEXT, XrDebugUtilsMessageTypeFlagsEXT, XrDebugUtilsMessengerCallbackDataEXT*, void*, XrBool32>)&DebugCallback;
 
 						var DebugUtilsMessenger = new XrDebugUtilsMessengerEXT();
 						var debugInstallResult = xrCreateDebugUtilsMessengerEXT(instance, &DebugUtilMessengerCreateInfo, &DebugUtilsMessenger);
@@ -296,7 +311,7 @@ namespace KSA_XR
 				unsafe
 				{
 					sessionCreateInfo.next = (void*)&graphicsBinding; //Khronos do love structure chains
-					XrSession session;
+					XrSession session = XrSession.Null;
 					CheckXRCall(xrCreateSession(instance, &sessionCreateInfo, &session));
 					this.session = session;
 				}
@@ -309,7 +324,7 @@ namespace KSA_XR
 				Logger.error(e.ToString());
 				return false;
 			}
-		
+
 		}
 
 		public void DestroySession()
