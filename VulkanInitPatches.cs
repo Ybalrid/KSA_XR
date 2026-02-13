@@ -3,6 +3,7 @@ using System.Linq;
 using System.Reflection;
 using HarmonyLib;
 using Brutal.VulkanApi.Abstractions;
+using Evergine.Bindings.OpenXR;
 
 namespace KSA_XR
 {
@@ -25,6 +26,22 @@ namespace KSA_XR
 		{
 			Logger.message("Adding other Vulkan Instance Extensions in hashmap after KSADeviceContextEx.AddGlfwRequiredExtensions");
 			VulkanExtensionPatchHelpers.InjectOpenXrInstanceExtensions(__0, "KSADeviceContextEx.AddGlfwRequiredExtensions");
+		}
+	}
+
+	[HarmonyPatch(typeof(Core.KSADeviceContextEx))]
+	[HarmonyPatch(MethodType.Constructor)]
+	[HarmonyPatch(new[] {typeof(Brutal.VulkanApi.Abstractions.VulkanHelpers.Api)})]
+	public static class VulkanKSADeviceContextExCtorPatch
+	{
+		static void Postfix(Core.KSADeviceContextEx __instance)
+		{
+			Logger.message("Postfix patch of Core.KSADeviceContextEx");
+			var xr = ModLoader.openxr;
+			if (xr == null)
+				Logger.error("Vulkan has been initialized before OpenXR was successuflly initialized. This cannot work.");
+			else
+				VulkanExtensionPatchHelpers.ObtainAccessToVulkanContext(__instance, xr);
 		}
 	}
 
@@ -157,5 +174,24 @@ namespace KSA_XR
 			}
 		}
 
+		public static void ObtainAccessToVulkanContext(Core.KSADeviceContextEx VulkanDeviceContext, OpenXR xrContext)
+		{
+			var rawInstance = VulkanDeviceContext.Instance.Handle.VkHandle;
+			var rawDevice = VulkanDeviceContext.Device.Handle.VkHandle;
+			var rawPhysicalDevice = VulkanDeviceContext.PhysicalDevice.Handle.VkHandle;
+			var rawQueue = VulkanDeviceContext.Graphics.VkHandle.ToInt64();
+			var queueFamilyIndex = VulkanDeviceContext.Graphics.Family;
+			var queueIndex = VulkanDeviceContext.Graphics.Index;
+
+			XrGraphicsBindingVulkanKHR vulkanContext = new XrGraphicsBindingVulkanKHR();
+			vulkanContext.instance = rawInstance;
+			vulkanContext.device = rawDevice;
+			vulkanContext.physicalDevice = rawPhysicalDevice;
+			vulkanContext.queueFamilyIndex = (uint) queueFamilyIndex;
+			vulkanContext.queueIndex = (uint) queueIndex;
+
+			xrContext.SetVulkanBinding(vulkanContext);
+
+		}
 	}
 }

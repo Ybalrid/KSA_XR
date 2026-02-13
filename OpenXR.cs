@@ -12,6 +12,14 @@ namespace KSA_XR
 		public readonly string RuntimeName;
 		public readonly string SystemName;
 
+		private XrGraphicsBindingVulkanKHR vulkanContextInfo;
+
+		public void SetVulkanBinding(XrGraphicsBindingVulkanKHR vulkanContext)
+		{
+			//Make sure this is set
+			vulkanContext.type = XrStructureType.XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR;
+			vulkanContextInfo = vulkanContext;
+		}
 
 		static ulong XR_MAKE_VERSION(ulong major, ulong minor, ulong patch)
 		{
