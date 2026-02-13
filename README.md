@@ -14,4 +14,5 @@ Managed by NuGet
 
 - Lib.Harmony
 - OpenXR.Loader
+- OpenXR.NET
 - StarMap.API (From their GitHub NuGet repo)
