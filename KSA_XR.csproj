@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0-windows</TargetFramework>
+		<RootNamespace>KSA_XR</RootNamespace>
+		<AssemblyName>KSA_XR</AssemblyName>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Lib.Harmony" Version="2.4.2" />
+		<PackageReference Include="OpenXR.Loader" Version="1.0.10.2" GeneratePathProperty="true" />
+		<PackageReference Include="StarMap.API" Version="0.3.6" />
+	</ItemGroup>
+
+
+
+	<Target Name="CopyOpenXRLoaderNativeDll" AfterTargets="Build">
+
+		<Message Importance="high" Text="Pkgopenxr_loader = '$(Pkgopenxr_loader)'" />
+		<Message Importance="high" Text="NuGetPackageRoot = '$(NuGetPackageRoot)'" />
+		<Message Importance="high" Text="TargetDir = '$(TargetDir)'" />
+
+
+		<PropertyGroup>
+			<_OpenXRFromPkg>$(Pkgopenxr_loader)native\x64\release\bin\openxr_loader.dll</_OpenXRFromPkg>
+			<_OpenXRFromRoot>$(NuGetPackageRoot)openxr.loader\1.0.10.2\native\x64\release\bin\openxr_loader.dll</_OpenXRFromRoot>
+		</PropertyGroup>
+
+		<Message Importance="high" Text="Trying source A: '$(_OpenXRFromPkg)'" />
+		<Message Importance="high" Text="Exists A? $([System.IO.File]::Exists('$(_OpenXRFromPkg)'))" />
+		<Message Importance="high" Text="Trying source B: '$(_OpenXRFromRoot)'" />
+		<Message Importance="high" Text="Exists B? $([System.IO.File]::Exists('$(_OpenXRFromRoot)'))" />
+
+		<!-- Pick whichever exists -->
+		<ItemGroup>
+			<_OpenXRToCopy Include="$(_OpenXRFromPkg)" Condition="Exists('$(_OpenXRFromPkg)')" />
+			<_OpenXRToCopy Include="$(_OpenXRFromRoot)" Condition="!Exists('$(_OpenXRFromPkg)') AND Exists('$(_OpenXRFromRoot)')" />
+		</ItemGroup>
+
+		<!-- If neither exists, fail loudly so it’s not “silent” -->
+		<Error Condition="'@(_OpenXRToCopy)' == ''" Text="openxr_loader.dll not found. Check package layout/version/platform. Look at the Messages above to see which paths were tried." />
+
+		<Copy SourceFiles="@(_OpenXRToCopy)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
+
+		<Message Importance="high" Text="Copied @(_OpenXRToCopy) -&gt; $(TargetDir)" />
+	</Target>
+
+
+	<ItemGroup>
+		<None Include="mod.toml" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+	</ItemGroup>
+</Project>
+
+
+

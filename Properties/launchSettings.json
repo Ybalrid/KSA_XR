@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "KSA_XR": {
+      "commandName": "Project"
+    },
+    "Debug through StarMap": {
+      "commandName": "Executable",
+      "executablePath": "C:\\Program Files (x86)\\StarMap\\StarMap.exe",
+      "workingDirectory": "C:\\Program Files (x86)\\StarMap\\"
+    }
+  }
+}
