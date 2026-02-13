@@ -8,6 +8,7 @@
 		<Nullable>enable</Nullable>
 		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<KSADir>C:\Program Files\Kitten Space Agency\</KSADir>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -15,8 +16,22 @@
 		<PackageReference Include="Lib.Harmony" Version="2.4.2" />
 		<PackageReference Include="OpenXR.Loader" Version="1.0.10.2" GeneratePathProperty="true" />
 		<PackageReference Include="StarMap.API" Version="0.3.6" />
+
 	</ItemGroup>
 
+	<ItemGroup>
+		<_KsaAssemblies
+		  Include="$(KSADir)Brutal*.dll" Path="%(FullPath)" />
+		<_KsaAssemblies
+		  Include="$(KSADir)KSA.dll" Path="%(FullPath)" />
+		<_KsaAssemblies
+		  Include="$(KSADir)Planet*.dll" Path="%(FullPath)" />
+		<_KsaAssemblies
+		  Include="$(KSADir)Tomlet.dll" Path="%(FullPath)" />
+		<Reference
+		  Include="@(_KsaAssemblies->'%(FileName)')"
+		  HintPath="%(Path)" Private="False" />
+	</ItemGroup>
 
 
 	<Target Name="CopyOpenXRLoaderNativeDll" AfterTargets="Build">
@@ -31,10 +46,12 @@
 			<_OpenXRFromRoot>$(NuGetPackageRoot)openxr.loader\1.0.10.2\native\x64\release\bin\openxr_loader.dll</_OpenXRFromRoot>
 		</PropertyGroup>
 
+		<!--
 		<Message Importance="high" Text="Trying source A: '$(_OpenXRFromPkg)'" />
 		<Message Importance="high" Text="Exists A? $([System.IO.File]::Exists('$(_OpenXRFromPkg)'))" />
 		<Message Importance="high" Text="Trying source B: '$(_OpenXRFromRoot)'" />
 		<Message Importance="high" Text="Exists B? $([System.IO.File]::Exists('$(_OpenXRFromRoot)'))" />
+		-->
 
 		<!-- Pick whichever exists -->
 		<ItemGroup>

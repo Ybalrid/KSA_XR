@@ -7,8 +7,11 @@ using static Evergine.Bindings.OpenXR.OpenXRNative;
 
 namespace KSA_XR
 {
-	internal class OpenXR
+	public class OpenXR
 	{
+		public readonly string RuntimeName;
+		public readonly string SystemName;
+
 
 		static ulong XR_MAKE_VERSION(ulong major, ulong minor, ulong patch)
 		{
@@ -58,8 +61,14 @@ namespace KSA_XR
 			Marshal.FreeHGlobal((IntPtr)stringListPointers);
 		}
 
+		private unsafe string? PtrToString(byte* ptr)
+		{
+			return Marshal.PtrToStringUTF8((IntPtr)(ptr));
+		}
+
 		XrInstance instance;
 		XrSession session;
+		ulong systemId = 0;
 
 		List<string> runtimeAvailableOpenXRExtensions = new List<string>();
 
@@ -100,8 +109,8 @@ namespace KSA_XR
 				{
 					GetListOfAvailableExtensions();
 
-					if (!runtimeAvailableOpenXRExtensions.Contains(XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME))
-						throw new Exception($"A mandatory OpenXR extension is not available : {XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME}");
+					CheckAvailableExtension(XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME);
+					CheckAvailableExtension(XR_KHR_VULKAN_ENABLE_EXTENSION_NAME);
 
 					var instanceCreateInfo = new XrInstanceCreateInfo();
 					instanceCreateInfo.type = XrStructureType.XR_TYPE_INSTANCE_CREATE_INFO;
@@ -109,12 +118,15 @@ namespace KSA_XR
 					//TODO obtain version strings from the game?
 					instanceCreateInfo.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
 					WriteStringToBuffer("BRUTAL", instanceCreateInfo.applicationInfo.engineName);
-					WriteStringToBuffer("Kitten Space Agency (KAS_XR mod)", instanceCreateInfo.applicationInfo.applicationName);
+					WriteStringToBuffer("KittenSpaceAgency (KAS_XR mod)", instanceCreateInfo.applicationInfo.applicationName);
 
 					//Need to enable the KHR_vulkan_enable2 extension
 
 					var enabledExtensionsCS = new List<string>();
+					enabledExtensionsCS.Add(XR_KHR_VULKAN_ENABLE_EXTENSION_NAME);
 					enabledExtensionsCS.Add(XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME);
+
+					//TODO enable debug messenger
 
 					instanceCreateInfo.enabledExtensionCount = (uint)enabledExtensionsCS.Count;
 					instanceCreateInfo.enabledExtensionNames = BuildExtensionListPointer(enabledExtensionsCS);
@@ -131,7 +143,37 @@ namespace KSA_XR
 					CheckXRCall(res);
 					this.instance = instance;
 
+					OpenXRNative.LoadFunctionPointers(instance);
+
 					Logger.message($"Successfully created instance {this.instance.Handle} with all required extensions");
+
+					XrInstanceProperties instanceProperties = new XrInstanceProperties();
+					instanceProperties.type = XrStructureType.XR_TYPE_INSTANCE_PROPERTIES;
+
+					res = xrGetInstanceProperties(instance, &instanceProperties);
+					CheckXRCall(res);
+
+					Logger.message($"Runtime is {PtrToString(instanceProperties.runtimeName)}");
+
+					RuntimeName = PtrToString(instanceProperties.runtimeName);
+
+					XrSystemGetInfo systemGetInfo = new XrSystemGetInfo();
+					systemGetInfo.type = XrStructureType.XR_TYPE_SYSTEM_GET_INFO;
+					systemGetInfo.formFactor = XrFormFactor.XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
+
+					ulong systemId;
+					CheckXRCall(xrGetSystem(instance, &systemGetInfo, &systemId));
+					this.systemId = systemId;
+
+					Logger.message($"Found an HMD Formfactor XR System on runtime (ID = {systemId})");
+
+					var systemProperties = new XrSystemProperties();
+					systemProperties.type = XrStructureType.XR_TYPE_SYSTEM_PROPERTIES;
+					CheckXRCall(xrGetSystemProperties(instance, systemId, &systemProperties));
+
+					Logger.message($"System Name: {PtrToString(systemProperties.systemName)}");
+					SystemName = PtrToString(systemProperties.systemName);
+
 				}
 
 			}
@@ -139,7 +181,58 @@ namespace KSA_XR
 			{
 				Logger.error(e.ToString());
 			}
-
 		}
+
+		private unsafe void CheckAvailableExtension(string extName)
+		{
+			if (!runtimeAvailableOpenXRExtensions.Contains(extName))
+				throw new Exception($"A mandatory OpenXR extension is not available : {extName}");
+		}
+
+		public string[]? GetRequiredVulkanInstanceExtensions()
+		{
+			uint count = 0;
+
+			unsafe
+			{
+				CheckXRCall(xrGetVulkanInstanceExtensionsKHR(instance, systemId, count, &count, null));
+				var buffer = (byte*)Marshal.AllocHGlobal((int)count);
+				CheckXRCall(xrGetVulkanInstanceExtensionsKHR(instance, systemId, count, &count, buffer));
+
+				string? output = buffer != null ? PtrToString(buffer) : null;
+				Marshal.FreeHGlobal((IntPtr)buffer);
+
+				if (output != null)
+				{
+					return output.Split(" ");
+				}
+			}
+
+			return null;
+		}
+
+
+		public string[]? GetRequiredVulkanDeviceExtensions()
+		{
+			uint count = 0;
+
+			unsafe
+			{
+				CheckXRCall(xrGetVulkanDeviceExtensionsKHR(instance, systemId, count, &count, null));
+				var buffer = (byte*)Marshal.AllocHGlobal((int)count);
+				CheckXRCall(xrGetVulkanDeviceExtensionsKHR(instance, systemId, count, &count, buffer));
+
+				string? output = buffer != null ? PtrToString(buffer) : null;
+				Marshal.FreeHGlobal((IntPtr)buffer);
+
+				if (output != null)
+				{
+					return output.Split(" ");
+				}
+			}
+
+			return null;
+		}
+
 	}
 }

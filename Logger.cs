@@ -18,6 +18,21 @@ namespace KSA_XR
 			Console.ForegroundColor = fgRestore;
 		}
 
+		public static void warning(string warning)
+		{
+			writeTag();
+			var bgRestore = Console.BackgroundColor;
+			var fgRestore = Console.ForegroundColor;
+
+			Console.BackgroundColor = ConsoleColor.Black;
+			Console.ForegroundColor = ConsoleColor.Yellow;
+
+			Console.WriteLine(warning);
+
+			Console.BackgroundColor = bgRestore;
+			Console.ForegroundColor = fgRestore;
+		}
+
 		public static void error(string error)
 		{
 			writeTag();
