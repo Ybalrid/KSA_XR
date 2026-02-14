@@ -1,18 +1,28 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
+using Brutal.Numerics;
 using Evergine.Bindings.OpenXR;
+using KSA;
 using static Evergine.Bindings.OpenXR.OpenXRNative;
 
 namespace KSA_XR
 {
 	public class OpenXR
 	{
+		public enum EyeIndex
+		{
+			Left = 0,
+			Right = 1,
+		};
+
 		public readonly string RuntimeName;
 		public readonly string SystemName;
 
+		XrPosef identityPose = new XrPosef();
 		private XrGraphicsBindingVulkanKHR vulkanContextInfo;
 
 		public void SetVulkanBinding(XrGraphicsBindingVulkanKHR vulkanContext)
@@ -95,6 +105,15 @@ namespace KSA_XR
 
 		XrInstance instance;
 		private XrSession session;
+		public XrSession Session
+		{
+			get { return session; }
+		}
+
+		private bool hasSessionBegan = false;
+
+		XrSpace applicationReferenceStage;
+
 		ulong systemId = 0;
 		public readonly XrViewConfigurationType viewConfigurationType;
 
@@ -163,6 +182,8 @@ namespace KSA_XR
 			{
 				unsafe
 				{
+					identityPose.orientation.w = 1;
+
 					GetListOfAvailableExtensions();
 
 					//CheckRequiredExtensionIsAvailable(XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME);
@@ -262,7 +283,7 @@ namespace KSA_XR
 					CheckXRCall(xrGetVulkanGraphicsRequirementsKHR(instance, systemId, &graphicsRequirements));
 					Logger.message($"Runtime requires vulkan minimum version {XR_VERSION_MAJOR(graphicsRequirements.minApiVersionSupported)}.{XR_VERSION_MINOR(graphicsRequirements.minApiVersionSupported)}.{XR_VERSION_PATCH(graphicsRequirements.minApiVersionSupported)}");
 					Logger.message($"Runtime requires vulkan maximum version {XR_VERSION_MAJOR(graphicsRequirements.maxApiVersionSupported)}.{XR_VERSION_MINOR(graphicsRequirements.maxApiVersionSupported)}.{XR_VERSION_PATCH(graphicsRequirements.maxApiVersionSupported)}");
-					
+
 					uint viewConfigCount = 0;
 					xrEnumerateViewConfigurations(instance, systemId, viewConfigCount, &viewConfigCount, null);
 					var viewConfigurationTypes = stackalloc XrViewConfigurationType[(int)viewConfigCount];
@@ -310,6 +331,7 @@ namespace KSA_XR
 			}
 		}
 
+
 		//TODO handle proper session state
 		public bool TryStartSession()
 		{
@@ -340,13 +362,45 @@ namespace KSA_XR
 						Logger.error($"The device is different than expected got {selectedPhysicalDevice} wanted {graphicsBinding.physicalDevice}");
 						return false;
 					}
-					
-					
+
+
 					sessionCreateInfo.next = (void*)&graphicsBinding;//Khronos do love structure chains
 					graphicsBinding.next = null;
-					XrSession session = new XrSession();
+					var session = new XrSession();
 					CheckXRCall(xrCreateSession(instance, &sessionCreateInfo, &session));
 					this.session = session;
+					Logger.message($"Created OpenXR Session with handle {session.Handle}");
+
+					var sessionBeginInfo = new XrSessionBeginInfo();
+					sessionBeginInfo.type = XrStructureType.XR_TYPE_SESSION_BEGIN_INFO;
+					sessionBeginInfo.primaryViewConfigurationType = viewConfigurationType;
+
+					CheckXRCall(xrBeginSession(session, &sessionBeginInfo));
+					Logger.message("Session has begun");
+					hasSessionBegan = true;
+
+
+					//Define a global reference space that is aligned wiht the tracking system STAGE
+					XrReferenceSpaceCreateInfo referenceSpaceCreateInfo = new XrReferenceSpaceCreateInfo();
+					referenceSpaceCreateInfo.type = XrStructureType.XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
+					referenceSpaceCreateInfo.referenceSpaceType = XrReferenceSpaceType.XR_REFERENCE_SPACE_TYPE_STAGE;
+					referenceSpaceCreateInfo.poseInReferenceSpace = identityPose;
+					XrSpace applicationStageSpace = new XrSpace();
+					CheckXRCall(xrCreateReferenceSpace(session, &referenceSpaceCreateInfo, &applicationStageSpace));
+					this.applicationReferenceStage = applicationStageSpace;
+
+					uint formatCount = 0;
+					CheckXRCall(xrEnumerateSwapchainFormats(session, formatCount, &formatCount, null));
+					var formats = stackalloc long[(int)formatCount];
+					CheckXRCall(xrEnumerateSwapchainFormats(session, formatCount, &formatCount, formats));
+
+					Logger.message("Runtime Swapchain compatible formats");
+					for (int i = 0; i < formatCount; ++i)
+					{
+						var format = (Brutal.VulkanApi.VkFormat)formats[i];
+						Logger.message($"\t- {format}");
+					}
+
 				}
 
 				return true;
@@ -360,10 +414,109 @@ namespace KSA_XR
 
 		}
 
+		float3 trackedPosition;
+		Quaternion trackedOrientation;
+
+		public float3 TrackedPosition
+		{
+			get
+			{
+				return trackedPosition;
+			}
+		}
+
+		public Quaternion TrackedOrientation
+		{
+			get
+			{
+				return TrackedOrientation;
+			}
+		}
+
+		public void OnFrame(double time)
+		{
+			try
+			{
+				unsafe
+				{
+					if (hasSessionBegan)
+					{
+						var frameState = new XrFrameState();
+						frameState.type = XrStructureType.XR_TYPE_FRAME_STATE;
+
+						var waitFrameInfo = new XrFrameWaitInfo();
+						waitFrameInfo.type = XrStructureType.XR_TYPE_FRAME_WAIT_INFO;
+
+						CheckXRCall(xrWaitFrame(session, &waitFrameInfo, &frameState));
+
+
+						var frameBeginInfo = new XrFrameBeginInfo();
+						frameBeginInfo.type = XrStructureType.XR_TYPE_FRAME_BEGIN_INFO;
+						CheckXRCall(xrBeginFrame(session, &frameBeginInfo));
+
+						//locate views
+						var viewState = new XrViewState();
+						viewState.type = XrStructureType.XR_TYPE_VIEW_STATE;
+						var views = stackalloc XrView[2];
+						for (int i = 0; i < 2; ++i) views[i].type = XrStructureType.XR_TYPE_VIEW;
+						uint viewCount = 0;
+
+						var viewLocateInfo = new XrViewLocateInfo();
+						viewLocateInfo.type = XrStructureType.XR_TYPE_VIEW_LOCATE_INFO;
+						viewLocateInfo.displayTime = frameState.predictedDisplayTime;
+						viewLocateInfo.space = applicationReferenceStage;
+						viewLocateInfo.viewConfigurationType = XrViewConfigurationType.XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+
+
+						CheckXRCall(xrLocateViews(session, &viewLocateInfo, &viewState, 2, &viewCount, views));
+
+						for (int i = 0; i < viewCount; ++i)
+						{
+							var view = views[i];
+							var eye = (EyeIndex)i;
+
+							if (0 != (viewState.viewStateFlags & (ulong)(XrViewStateFlags.XR_VIEW_STATE_POSITION_VALID_BIT | XrViewStateFlags.XR_VIEW_STATE_POSITION_TRACKED_BIT)))
+							{
+								float3 positionVector = new float3(view.pose.position.x, view.pose.position.y, view.pose.position.z);
+								this.trackedPosition = positionVector;
+								Logger.message($"Primary stereo view {eye} position {positionVector}");
+							}
+
+							if (0 != (viewState.viewStateFlags & (ulong)(XrViewStateFlags.XR_VIEW_STATE_ORIENTATION_VALID_BIT | XrViewStateFlags.XR_VIEW_STATE_ORIENTATION_TRACKED_BIT)))
+							{
+								var quaternion = new Quaternion(view.pose.orientation.x, view.pose.orientation.y, view.pose.orientation.z, view.pose.orientation.w);
+								this.trackedOrientation = quaternion;
+								Logger.message($"Primary stereo view {eye} orientation {quaternion} ");
+							}
+						}
+
+						//sync actions
+
+						//render view
+
+						var frameEndInfo = new XrFrameEndInfo();
+						frameEndInfo.type = XrStructureType.XR_TYPE_FRAME_END_INFO;
+						//populate composion layers
+						frameEndInfo.environmentBlendMode = blendModeToUse;
+						frameEndInfo.displayTime = frameState.predictedDisplayTime;
+
+						CheckXRCall(xrEndFrame(session, &frameEndInfo));
+					}
+				}
+			}
+			catch (Exception e)
+			{
+				Logger.error(e.ToString());
+			}
+		}
+
 		public void DestroySession()
 		{
+			if (hasSessionBegan)
+				xrEndSession(session);
 			xrDestroySession(session);
-			//session.Handle = IntPtr.Zero;
+			session = new XrSession();
+			hasSessionBegan = false;
 		}
 
 		private bool CheckOptionalExtensionIsAvailable(string extName)

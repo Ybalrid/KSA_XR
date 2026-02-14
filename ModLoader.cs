@@ -50,13 +50,9 @@ namespace KSA_XR
 		}
 
 		[StarMapAfterOnFrame]
-		public void OnFrame(double a, double b)
+		public void OnFrame(double dta, double dtb)
 		{
-			if(ui.signaled_try_init)
-			{
-				ui.signaled_try_init = false;
-				openxr.TryStartSession();
-			}
+			openxr.OnFrame(dta);
 		}
 	}
 }

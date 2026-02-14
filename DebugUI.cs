@@ -3,12 +3,13 @@ using System.Collections.Generic;
 using System.Text;
 
 using Brutal.ImGuiApi;
+using Brutal.Numerics;
 
 namespace KSA_XR
 {
 	public class DebugUI
 	{
-		public bool signaled_try_init = false;
+		bool XrSessionStarted = false;
 		public void StatusWindow()
 		{
 			ImGui.Begin("KSA_XR");
@@ -20,9 +21,20 @@ namespace KSA_XR
 				ImGui.Text($"OpenXR System {xr.SystemName}");
 				ImGui.Text($"System's viewconfig type {xr.viewConfigurationType}");
 
-				if (ImGui.Button("Try to start XrSession"))
+				if(!XrSessionStarted && ImGui.Button("Try to start XrSession"))
 				{
-					signaled_try_init = true;
+					//signaled_try_init = true;
+					XrSessionStarted =  xr.TryStartSession();
+				}
+
+				if(XrSessionStarted)
+				{
+					var yellowColor = new float4();
+					yellowColor.A = 1;
+					yellowColor.R = 1;
+					yellowColor.G = 1;
+					ImGui.TextColored(yellowColor, $"XrSession {xr.Session.Handle}");
+
 				}
 			}
 			else

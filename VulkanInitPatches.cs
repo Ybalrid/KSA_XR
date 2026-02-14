@@ -24,7 +24,7 @@ namespace KSA_XR
 	{
 		static void Postfix(HashSet<string> __0)
 		{
-			VulkanExtensionPatchHelpers.InjectOpenXrDeviceExtensions(__0, "KSADeviceContextEx.AddSwapchainExtensions");
+			VulkanExtensionPatchHelpers.InjectOpenXrDeviceExtensions(__0, "VulkanHelpers.AddSwapchainExtensions");
 		}
 	}
 
