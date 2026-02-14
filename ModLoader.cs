@@ -14,6 +14,7 @@ namespace KSA_XR
 		[StarMapBeforeMain]
 		public void preMain()
 		{
+			harmony.PatchAll(Assembly.GetExecutingAssembly());
 			Logger.message("preMain() reached");
 			openxr = new OpenXR();
 			ui = new DebugUI();
@@ -39,7 +40,6 @@ namespace KSA_XR
 				}
 			}
 
-			harmony.PatchAll(Assembly.GetExecutingAssembly());
 		}
 
 

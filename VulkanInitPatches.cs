@@ -18,25 +18,30 @@ namespace KSA_XR
 		}
 	}
 
-	[HarmonyPatch(typeof(Core.KSADeviceContextEx))]
-	[HarmonyPatch("AddGlfwRequiredExtensions")]
-	public static class VulkanGlfwExtensionPatch
+	[HarmonyPatch(typeof(VulkanHelpers))]
+	[HarmonyPatch(nameof(VulkanHelpers.AddSwapchainExtensions))]
+	public static class VulkanDeviceExtensionPatch
 	{
 		static void Postfix(HashSet<string> __0)
 		{
-			Logger.message("Adding other Vulkan Instance Extensions in hashmap after KSADeviceContextEx.AddGlfwRequiredExtensions");
-			VulkanExtensionPatchHelpers.InjectOpenXrInstanceExtensions(__0, "KSADeviceContextEx.AddGlfwRequiredExtensions");
+			VulkanExtensionPatchHelpers.InjectOpenXrDeviceExtensions(__0, "KSADeviceContextEx.AddSwapchainExtensions");
 		}
 	}
 
 	[HarmonyPatch(typeof(Core.KSADeviceContextEx))]
 	[HarmonyPatch(MethodType.Constructor)]
-	[HarmonyPatch(new[] {typeof(Brutal.VulkanApi.Abstractions.VulkanHelpers.Api)})]
+	[HarmonyPatch(new[] { typeof(Brutal.VulkanApi.Abstractions.VulkanHelpers.Api) })]
 	public static class VulkanKSADeviceContextExCtorPatch
 	{
+		static void Prefix(Brutal.VulkanApi.Abstractions.VulkanHelpers.Api __0)
+		{
+			Logger.message("Prefix patch of Core.KSADeviceContextEx");
+		}
+
 		static void Postfix(Core.KSADeviceContextEx __instance)
 		{
 			Logger.message("Postfix patch of Core.KSADeviceContextEx");
+
 			var xr = ModLoader.openxr;
 			if (xr == null)
 				Logger.error("Vulkan has been initialized before OpenXR was successuflly initialized. This cannot work.");
@@ -68,70 +73,14 @@ namespace KSA_XR
 		}
 	}
 
-
 	[HarmonyPatch(typeof(Brutal.VulkanApi.Device))]
 	[HarmonyPatch("GetQueue")]
 	public static class VulkanGetQueuePatch
 	{
+		static int CallCount = 0;
 		static void Prefix(int __0, int __1)
 		{
-			Logger.message($"family {__0} index {__1}");
-		}
-	}
-	
-
-	[HarmonyPatch]
-	public static class VulkanDeviceExtensionsBuilderPatch
-	{
-		static IEnumerable<MethodBase> TargetMethods()
-		{
-			static bool IsCandidate(MethodInfo m)
-			{
-				if (m.IsGenericMethod)
-				{
-					return false;
-				}
-
-				var p = m.GetParameters();
-				if (p.Length != 1 || p[0].ParameterType != typeof(HashSet<string>))
-				{
-					return false;
-				}
-
-				var n = m.Name;
-				return n.Contains("SwapchainExtensions") || n.Contains("DeviceExtensions");
-			}
-
-			var candidates = new[]
-			{
-				typeof(Core.KSADeviceContextEx),
-				typeof(VulkanHelpers),
-			}
-			.SelectMany(t => t.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static))
-			.Where(IsCandidate)
-			.Cast<MethodBase>()
-			.ToArray();
-
-			if (candidates.Length == 0)
-			{
-				Logger.error("VulkanDeviceExtensionsBuilderPatch: no builder methods found with HashSet<string> parameter.");
-			}
-			else
-			{
-				foreach (var c in candidates)
-				{
-					Logger.message($"VulkanDeviceExtensionsBuilderPatch: patching {c.DeclaringType?.FullName}.{c.Name}");
-				}
-			}
-
-			return candidates;
-		}
-
-		static void Postfix(HashSet<string> __0, MethodBase __originalMethod)
-		{
-			VulkanExtensionPatchHelpers.InjectOpenXrDeviceExtensions(
-				__0,
-				$"{__originalMethod.DeclaringType?.Name}.{__originalMethod.Name}");
+			Logger.message($"GetQueue call {CallCount++}: family {__0} index {__1}");
 		}
 	}
 

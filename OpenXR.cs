@@ -204,11 +204,9 @@ namespace KSA_XR
 					FreeExtensionListPointer(instanceCreateInfo.enabledExtensionNames, enabledExtensionsCS.Count);
 					CheckXRCall(res);
 					this.instance = instance;
-
 					OpenXRNative.LoadFunctionPointers(instance);
 
 					Logger.message($"Successfully created instance {this.instance.Handle} with all required extensions");
-
 
 #if DEBUG
 					if (useDebugMessenger)
@@ -232,9 +230,6 @@ namespace KSA_XR
 					}
 #endif
 
-
-
-
 					XrInstanceProperties instanceProperties = new XrInstanceProperties();
 					instanceProperties.type = XrStructureType.XR_TYPE_INSTANCE_PROPERTIES;
 
@@ -242,7 +237,6 @@ namespace KSA_XR
 					CheckXRCall(res);
 
 					Logger.message($"Runtime is {PtrToString(instanceProperties.runtimeName)}");
-
 					RuntimeName = PtrToString(instanceProperties.runtimeName);
 
 					XrSystemGetInfo systemGetInfo = new XrSystemGetInfo();
@@ -308,8 +302,6 @@ namespace KSA_XR
 					xrEnumerateEnvironmentBlendModes(instance, systemId, viewConfigurationType, blendModeCount, &blendModeCount, envBlendModes);
 
 					blendModeToUse = envBlendModes[0];
-
-
 				}
 			}
 			catch (Exception e)
@@ -336,20 +328,22 @@ namespace KSA_XR
 				graphicsBinding.queueFamilyIndex = vulkanContextInfo.queueFamilyIndex;
 				graphicsBinding.type = XrStructureType.XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR;
 
-
 				unsafe
 				{
-					IntPtr correctPhysicalDevice = Marshal.AllocHGlobal(sizeof(IntPtr));
-					CheckXRCall(xrGetVulkanGraphicsDeviceKHR(instance, systemId, graphicsBinding.instance, correctPhysicalDevice));
-					IntPtr selectedPhysicalDevice = *(IntPtr*)correctPhysicalDevice;
+					IntPtr ptrToSelectedPhysicalDevice = Marshal.AllocHGlobal(sizeof(IntPtr));
+					CheckXRCall(xrGetVulkanGraphicsDeviceKHR(instance, systemId, graphicsBinding.instance, ptrToSelectedPhysicalDevice));
+					IntPtr selectedPhysicalDevice = *(IntPtr*)ptrToSelectedPhysicalDevice;
+					Marshal.FreeHGlobal(ptrToSelectedPhysicalDevice);
 
 					if (selectedPhysicalDevice != graphicsBinding.physicalDevice)
 					{
 						Logger.error($"The device is different than expected got {selectedPhysicalDevice} wanted {graphicsBinding.physicalDevice}");
+						return false;
 					}
 					
 					
-					sessionCreateInfo.next = (void*)&graphicsBinding; //Khronos do love structure chains
+					sessionCreateInfo.next = (void*)&graphicsBinding;//Khronos do love structure chains
+					graphicsBinding.next = null;
 					XrSession session = new XrSession();
 					CheckXRCall(xrCreateSession(instance, &sessionCreateInfo, &session));
 					this.session = session;
