@@ -67,6 +67,17 @@ namespace KSA_XR
 
 		}
 	}
+
+
+	[HarmonyPatch(typeof(Brutal.VulkanApi.Device))]
+	[HarmonyPatch("GetQueue")]
+	public static class VulkanGetQueuePatch
+	{
+		static void Prefix(int __0, int __1)
+		{
+			Logger.message($"family {__0} index {__1}");
+		}
+	}
 	
 
 	[HarmonyPatch]

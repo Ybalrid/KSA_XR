@@ -232,6 +232,9 @@ namespace KSA_XR
 					}
 #endif
 
+
+
+
 					XrInstanceProperties instanceProperties = new XrInstanceProperties();
 					instanceProperties.type = XrStructureType.XR_TYPE_INSTANCE_PROPERTIES;
 
@@ -259,6 +262,13 @@ namespace KSA_XR
 					Logger.message($"System Name: {PtrToString(systemProperties.systemName)}");
 					SystemName = PtrToString(systemProperties.systemName);
 
+					//We should check the Vulkan version in use, strictly speaking.
+					var graphicsRequirements = new XrGraphicsRequirementsVulkanKHR();
+					graphicsRequirements.type = XrStructureType.XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN_KHR;
+					CheckXRCall(xrGetVulkanGraphicsRequirementsKHR(instance, systemId, &graphicsRequirements));
+					Logger.message($"Runtime requires vulkan minimum version {XR_VERSION_MAJOR(graphicsRequirements.minApiVersionSupported)}.{XR_VERSION_MINOR(graphicsRequirements.minApiVersionSupported)}.{XR_VERSION_PATCH(graphicsRequirements.minApiVersionSupported)}");
+					Logger.message($"Runtime requires vulkan maximum version {XR_VERSION_MAJOR(graphicsRequirements.maxApiVersionSupported)}.{XR_VERSION_MINOR(graphicsRequirements.maxApiVersionSupported)}.{XR_VERSION_PATCH(graphicsRequirements.maxApiVersionSupported)}");
+					
 					uint viewConfigCount = 0;
 					xrEnumerateViewConfigurations(instance, systemId, viewConfigCount, &viewConfigCount, null);
 					var viewConfigurationTypes = stackalloc XrViewConfigurationType[(int)viewConfigCount];
@@ -269,7 +279,6 @@ namespace KSA_XR
 					XrViewConfigurationProperties viewConfigurationProperties = new XrViewConfigurationProperties();
 					viewConfigurationProperties.type = XrStructureType.XR_TYPE_VIEW_CONFIGURATION_PROPERTIES;
 					CheckXRCall(xrGetViewConfigurationProperties(instance, systemId, viewConfigurationType, &viewConfigurationProperties));
-
 
 					uint viewConfigViewCount = 0;
 					xrEnumerateViewConfigurationViews(instance, systemId, viewConfigurationType, viewConfigViewCount, &viewConfigViewCount, null);
@@ -300,13 +309,6 @@ namespace KSA_XR
 
 					blendModeToUse = envBlendModes[0];
 
-					//We should check the Vulkan version in use, strictly speaking.
-					var graphicsRequirements = new XrGraphicsRequirementsVulkanKHR();
-					graphicsRequirements.type = XrStructureType.XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN_KHR;
-					CheckXRCall(xrGetVulkanGraphicsRequirementsKHR(instance, systemId, &graphicsRequirements));
-
-					Logger.message($"Runtime requires vulkan minimum version {XR_VERSION_MAJOR(graphicsRequirements.minApiVersionSupported)}.{XR_VERSION_MINOR(graphicsRequirements.minApiVersionSupported)}.{XR_VERSION_PATCH(graphicsRequirements.minApiVersionSupported)}");
-					Logger.message($"Runtime requires vulkan maximum version {XR_VERSION_MAJOR(graphicsRequirements.maxApiVersionSupported)}.{XR_VERSION_MINOR(graphicsRequirements.maxApiVersionSupported)}.{XR_VERSION_PATCH(graphicsRequirements.maxApiVersionSupported)}");
 
 				}
 			}
@@ -348,7 +350,7 @@ namespace KSA_XR
 					
 					
 					sessionCreateInfo.next = (void*)&graphicsBinding; //Khronos do love structure chains
-					XrSession session = XrSession.Null;
+					XrSession session = new XrSession();
 					CheckXRCall(xrCreateSession(instance, &sessionCreateInfo, &session));
 					this.session = session;
 				}
