@@ -17,9 +17,13 @@ namespace KSA_XR
 
 		public void SetVulkanBinding(XrGraphicsBindingVulkanKHR vulkanContext)
 		{
-			//Make sure this is set
-			vulkanContext.type = XrStructureType.XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR;
 			vulkanContextInfo = vulkanContext;
+		}
+
+		public void SetQueue(int index, int family)
+		{
+			vulkanContextInfo.queueIndex = (uint)index;
+			vulkanContextInfo.queueFamilyIndex = (uint)family;
 		}
 
 		static ulong XR_MAKE_VERSION(ulong major, ulong minor, ulong patch)
@@ -129,17 +133,28 @@ namespace KSA_XR
 		}
 
 		bool useDebugMessenger = false;
-		[UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+
+
+		[UnmanagedFunctionPointer(CallingConvention.StdCall)]
+		public unsafe delegate XrBool32 DebugCallbackType(XrDebugUtilsMessageSeverityFlagsEXT severity, XrDebugUtilsMessageTypeFlagsEXT type, XrDebugUtilsMessengerCallbackDataEXT* data, void* userData);
+
+		private DebugCallbackType? DebugCallbackObj;
+		private GCHandle DebugMessengerHandle;
+		private IntPtr DebugMessengerPtr = IntPtr.Zero;
+
+
 		public static unsafe XrBool32 DebugCallback(XrDebugUtilsMessageSeverityFlagsEXT severity, XrDebugUtilsMessageTypeFlagsEXT type, XrDebugUtilsMessengerCallbackDataEXT* data, void* userData)
 		{
+			string message = $"{PtrToString(data->message)} {PtrToString(data->messageId)} {PtrToString(data->functionName)}";
 			if (((ulong)severity & (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) != 0)
-				Logger.error(PtrToString(data->message));
+				Logger.error(message, "OpenXR Validation");
 			else if (((ulong)severity & (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) != 0)
-				Logger.warning(PtrToString(data->message));
+				Logger.warning(message, "OpenXR Validation");
 			else
-				Logger.message(PtrToString(data->message));
+				Logger.message(message, "OpenXR Validation");
 			return XR_FALSE;
 		}
+
 		XrDebugUtilsMessengerEXT DebugUtilsMessenger = new XrDebugUtilsMessengerEXT();
 
 		public OpenXR()
@@ -193,6 +208,29 @@ namespace KSA_XR
 					OpenXRNative.LoadFunctionPointers(instance);
 
 					Logger.message($"Successfully created instance {this.instance.Handle} with all required extensions");
+
+
+#if DEBUG
+					if (useDebugMessenger)
+					{
+						var DebugUtilMessengerCreateInfo = new XrDebugUtilsMessengerCreateInfoEXT();
+						DebugUtilMessengerCreateInfo.type = XrStructureType.XR_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+
+						DebugUtilMessengerCreateInfo.messageSeverities = 0x1111;
+						DebugUtilMessengerCreateInfo.messageTypes = 1 | 2 | 4 | 8;
+
+						DebugCallbackObj = DebugCallback;
+						DebugMessengerPtr = Marshal.GetFunctionPointerForDelegate(DebugCallbackObj);
+						DebugMessengerHandle = GCHandle.Alloc(DebugCallbackObj);
+
+						DebugUtilMessengerCreateInfo.userCallback = DebugMessengerPtr;
+
+						var DebugUtilsMessenger = new XrDebugUtilsMessengerEXT();
+						var debugInstallResult = xrCreateDebugUtilsMessengerEXT(instance, &DebugUtilMessengerCreateInfo, &DebugUtilsMessenger);
+						this.DebugUtilsMessenger = DebugUtilsMessenger;
+
+					}
+#endif
 
 					XrInstanceProperties instanceProperties = new XrInstanceProperties();
 					instanceProperties.type = XrStructureType.XR_TYPE_INSTANCE_PROPERTIES;
@@ -270,25 +308,6 @@ namespace KSA_XR
 					Logger.message($"Runtime requires vulkan minimum version {XR_VERSION_MAJOR(graphicsRequirements.minApiVersionSupported)}.{XR_VERSION_MINOR(graphicsRequirements.minApiVersionSupported)}.{XR_VERSION_PATCH(graphicsRequirements.minApiVersionSupported)}");
 					Logger.message($"Runtime requires vulkan maximum version {XR_VERSION_MAJOR(graphicsRequirements.maxApiVersionSupported)}.{XR_VERSION_MINOR(graphicsRequirements.maxApiVersionSupported)}.{XR_VERSION_PATCH(graphicsRequirements.maxApiVersionSupported)}");
 
-#if DEBUG
-					if (useDebugMessenger)
-					{
-						var DebugUtilMessengerCreateInfo = new XrDebugUtilsMessengerCreateInfoEXT();
-						DebugUtilMessengerCreateInfo.type = XrStructureType.XR_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-						DebugUtilMessengerCreateInfo.messageSeverities = (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
-													  (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT;
-						DebugUtilMessengerCreateInfo.messageTypes =
-							(ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-							(ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
-
-						DebugUtilMessengerCreateInfo.userCallback = (IntPtr)(delegate* unmanaged[Cdecl]<XrDebugUtilsMessageSeverityFlagsEXT, XrDebugUtilsMessageTypeFlagsEXT, XrDebugUtilsMessengerCallbackDataEXT*, void*, XrBool32>)&DebugCallback;
-
-						var DebugUtilsMessenger = new XrDebugUtilsMessengerEXT();
-						var debugInstallResult = xrCreateDebugUtilsMessengerEXT(instance, &DebugUtilMessengerCreateInfo, &DebugUtilsMessenger);
-						this.DebugUtilsMessenger = DebugUtilsMessenger;
-
-					}
-#endif
 				}
 			}
 			catch (Exception e)
@@ -306,10 +325,28 @@ namespace KSA_XR
 				sessionCreateInfo.type = XrStructureType.XR_TYPE_SESSION_CREATE_INFO;
 				sessionCreateInfo.systemId = systemId;
 				sessionCreateInfo.createFlags = (ulong)XrSessionCreateFlags.None;
-				var graphicsBinding = vulkanContextInfo;
+
+				var graphicsBinding = new XrGraphicsBindingVulkanKHR();
+				graphicsBinding.instance = vulkanContextInfo.instance;
+				graphicsBinding.device = vulkanContextInfo.device;
+				graphicsBinding.physicalDevice = vulkanContextInfo.physicalDevice;
+				graphicsBinding.queueIndex = vulkanContextInfo.queueIndex;
+				graphicsBinding.queueFamilyIndex = vulkanContextInfo.queueFamilyIndex;
+				graphicsBinding.type = XrStructureType.XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR;
+
 
 				unsafe
 				{
+					IntPtr correctPhysicalDevice = Marshal.AllocHGlobal(sizeof(IntPtr));
+					CheckXRCall(xrGetVulkanGraphicsDeviceKHR(instance, systemId, graphicsBinding.instance, correctPhysicalDevice));
+					IntPtr selectedPhysicalDevice = *(IntPtr*)correctPhysicalDevice;
+
+					if (selectedPhysicalDevice != graphicsBinding.physicalDevice)
+					{
+						Logger.error($"The device is different than expected got {selectedPhysicalDevice} wanted {graphicsBinding.physicalDevice}");
+					}
+					
+					
 					sessionCreateInfo.next = (void*)&graphicsBinding; //Khronos do love structure chains
 					XrSession session = XrSession.Null;
 					CheckXRCall(xrCreateSession(instance, &sessionCreateInfo, &session));

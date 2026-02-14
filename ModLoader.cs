@@ -48,5 +48,15 @@ namespace KSA_XR
 		{
 			ui.StatusWindow();
 		}
+
+		[StarMapAfterOnFrame]
+		public void OnFrame(double a, double b)
+		{
+			if(ui.signaled_try_init)
+			{
+				ui.signaled_try_init = false;
+				openxr.TryStartSession();
+			}
+		}
 	}
 }

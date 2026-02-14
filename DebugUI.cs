@@ -8,6 +8,7 @@ namespace KSA_XR
 {
 	public class DebugUI
 	{
+		public bool signaled_try_init = false;
 		public void StatusWindow()
 		{
 			ImGui.Begin("KSA_XR");
@@ -21,8 +22,7 @@ namespace KSA_XR
 
 				if (ImGui.Button("Try to start XrSession"))
 				{
-					bool status = xr.TryStartSession();
-					Logger.message($"Session creation status is {status}");
+					signaled_try_init = true;
 				}
 			}
 			else

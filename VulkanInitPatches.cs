@@ -45,6 +45,30 @@ namespace KSA_XR
 		}
 	}
 
+	[HarmonyPatch(typeof(Core.Renderer))]
+	[HarmonyPatch("CreateGraphicsAndComputeQueue")]
+	public static class VulkanRendererCreateGraphicsAndComputerQueue
+	{
+
+		static void Prefix(Core.Renderer __instance)
+		{
+			Logger.message("Renderer CreateGraphicsAndCompute...");
+		}
+
+		static void Postfix(Core.Renderer __instance)
+		{
+			int index = __instance.GraphicsAndCompute.Index;
+			int family = __instance.GraphicsAndCompute.Family;
+
+			var xr = ModLoader.openxr;
+
+			if (xr != null)
+				xr.SetQueue(index, family);
+
+		}
+	}
+	
+
 	[HarmonyPatch]
 	public static class VulkanDeviceExtensionsBuilderPatch
 	{
@@ -176,21 +200,15 @@ namespace KSA_XR
 
 		public static void ObtainAccessToVulkanContext(Core.KSADeviceContextEx VulkanDeviceContext, OpenXR xrContext)
 		{
-			var rawInstance = VulkanDeviceContext.Instance.Handle.VkHandle;
-			var rawDevice = VulkanDeviceContext.Device.Handle.VkHandle;
-			var rawPhysicalDevice = VulkanDeviceContext.PhysicalDevice.Handle.VkHandle;
-			var queueFamilyIndex = VulkanDeviceContext.Graphics.Family;
-			var queueIndex = VulkanDeviceContext.Graphics.Index;
+			XrGraphicsBindingVulkanKHR vulkanBindings = new XrGraphicsBindingVulkanKHR();
+			vulkanBindings.type = XrStructureType.XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR;
+			vulkanBindings.instance = VulkanDeviceContext.Instance.Handle.VkHandle;
+			vulkanBindings.device = VulkanDeviceContext.Device.Handle.VkHandle;
+			vulkanBindings.physicalDevice = VulkanDeviceContext.PhysicalDevice.Handle.VkHandle;
+			vulkanBindings.queueFamilyIndex = (uint)VulkanDeviceContext.Graphics.Family;
+			vulkanBindings.queueIndex = (uint)VulkanDeviceContext.Graphics.Index;
 
-			XrGraphicsBindingVulkanKHR vulkanContext = new XrGraphicsBindingVulkanKHR();
-			vulkanContext.instance = rawInstance;
-			vulkanContext.device = rawDevice;
-			vulkanContext.physicalDevice = rawPhysicalDevice;
-			vulkanContext.queueFamilyIndex = (uint) queueFamilyIndex;
-			vulkanContext.queueIndex = (uint) queueIndex;
-
-			xrContext.SetVulkanBinding(vulkanContext);
-
+			xrContext.SetVulkanBinding(vulkanBindings);
 		}
 	}
 }

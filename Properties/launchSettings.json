@@ -6,10 +6,7 @@
     "Debug through StarMap": {
       "commandName": "Executable",
       "executablePath": "C:\\Program Files (x86)\\StarMap\\StarMap.exe",
-      "workingDirectory": "C:\\Program Files (x86)\\StarMap\\",
-      "environmentVariables": {
-        "XR_LOADER_DEBUG": "all"
-      }
+      "workingDirectory": "C:\\Program Files (x86)\\StarMap\\"
     }
   }
 }

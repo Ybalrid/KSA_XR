@@ -6,21 +6,24 @@ namespace KSA_XR
 {
 	internal class Logger
 	{
-		private static void writeTag()
+		private static void writeTag(string? extra = null)
 		{
 			var bgRestore = Console.BackgroundColor;
 			var fgRestore = Console.ForegroundColor;
 
 			Console.BackgroundColor = ConsoleColor.Black;
 			Console.ForegroundColor = ConsoleColor.Magenta;
-			Console.Write("[KSA_XR] ");
+			Console.Write("[KSA_XR");
+			if (extra != null)
+				Console.Write($" {extra}");
+			Console.Write("] ");
 			Console.BackgroundColor = bgRestore;
 			Console.ForegroundColor = fgRestore;
 		}
 
-		public static void warning(string warning)
+		public static void warning(string warning, string? tag = null)
 		{
-			writeTag();
+			writeTag(tag);
 			var bgRestore = Console.BackgroundColor;
 			var fgRestore = Console.ForegroundColor;
 
@@ -33,9 +36,9 @@ namespace KSA_XR
 			Console.ForegroundColor = fgRestore;
 		}
 
-		public static void error(string error)
+		public static void error(string error, string? tag= null)
 		{
-			writeTag();
+			writeTag(tag);
 			var bgRestore = Console.BackgroundColor;
 			var fgRestore = Console.ForegroundColor;
 
@@ -49,9 +52,9 @@ namespace KSA_XR
 		}
 
 
-		public static void message(string message)
+		public static void message(string message, string? tag = null)
 		{
-			writeTag();
+			writeTag(tag);
 			Console.WriteLine(message);
 		}
 	}
