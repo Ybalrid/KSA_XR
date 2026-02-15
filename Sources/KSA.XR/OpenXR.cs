@@ -20,8 +20,8 @@ namespace KSA
 
 			string? runtimeName;
 			string? systemName;
-			public string? RuntimeName { get { return runtimeName; } }
-			public string? SystemName { get { return systemName; } }
+			public string? RuntimeName => runtimeName;
+			public string? SystemName => systemName;
 
 
 			#region OpenXR Version Macros (ported from C to C#)
@@ -231,16 +231,18 @@ namespace KSA
 			#endregion
 
 			private XrInstance instance;
-			public XrInstance Instance { get { return instance; } }
+			public XrInstance Instance => instance;
 			private XrSession session;
-			public XrSession Session { get { return session; } }
+			public XrSession Session => session;
 
 			private bool hasSessionBegan = false;
 			XrSpace applicationLocalSpaced;
 			ulong systemId = 0;
 			XrViewConfigurationType viewConfigurationType;
-			public XrViewConfigurationType ViewConfigurationType { get { return viewConfigurationType; } }
+			public XrViewConfigurationType ViewConfigurationType => viewConfigurationType;
 			XrViewConfigurationView[] eyeViews = new XrViewConfigurationView[2];
+			public XrViewConfigurationView[] EyeViewConfigurations => eyeViews; 
+			
 			XrEnvironmentBlendMode blendModeToUse;
 
 			List<VkFormat> compatibleSwapchainVulkanFormat = new List<VkFormat>();
@@ -250,7 +252,7 @@ namespace KSA
 
 			float2[] eyeRenderTargetSizes = new float2[2];
 			XrPosef[] eyeViewPoses = new XrPosef[2];
-			public XrPosef[] MostRecentEyeViewPoses { get { return eyeViewPoses; } }
+			public XrPosef[] MostRecentEyeViewPoses => eyeViewPoses;
 
 			#region OpenXR Debug Infrastructure
 			bool useDebugMessenger = false;
@@ -385,8 +387,9 @@ namespace KSA
 				xrEnumerateEnvironmentBlendModes(instance, systemId, viewConfigurationType, blendModeCount, &blendModeCount, null);
 				var envBlendModes = stackalloc XrEnvironmentBlendMode[(int)blendModeCount];
 				xrEnumerateEnvironmentBlendModes(instance, systemId, viewConfigurationType, blendModeCount, &blendModeCount, envBlendModes);
-
 				blendModeToUse = envBlendModes[0];
+
+
 			}
 
 			/// <summary>

@@ -1,65 +1,79 @@
 ﻿using Brutal.ImGuiApi;
 using Brutal.Numerics;
 
-namespace KSA
+namespace KSA.XR
 {
-	namespace XR
+	public class DebugUI
 	{
-		public class DebugUI
+		public DebugUI()
 		{
-			public DebugUI()
+			Logger.message("Initialize Debug UI");
+		}
+
+		bool XrSessionStarted = false;
+		float renderBufferResoltuionScale = 1f;
+		public void StatusWindow()
+		{
+			ImGui.Begin("KSA_XR");
+
+			var xr = ModInit.openxr;
+			if (xr != null)
 			{
-				Logger.message("Initialize Debug UI");
-			}
+				ImGui.Text($"OpenXR Runtime {xr.RuntimeName}");
+				ImGui.Text($"OpenXR System {xr.SystemName}");
+				ImGui.Text($"System's viewconfig type {xr.ViewConfigurationType}");
 
-			bool XrSessionStarted = false;
-			public void StatusWindow()
-			{
-				ImGui.Begin("KSA_XR");
 
-				var xr = ModInit.openxr;
-				if (xr != null)
+
+				if (!XrSessionStarted)
 				{
-					ImGui.Text($"OpenXR Runtime {xr.RuntimeName}");
-					ImGui.Text($"OpenXR System {xr.SystemName}");
-					ImGui.Text($"System's viewconfig type {xr.ViewConfigurationType}");
+				ImGui.DragFloat("XR Resolution Scaler", ref renderBufferResoltuionScale, 0.01f, 0.5f, 2f);
+				if (ImGui.Button("Reset Scale"))
+					renderBufferResoltuionScale = 1;
 
-					if (!XrSessionStarted && ImGui.Button("Try to start XrSession"))
-					{
-						XrSessionStarted = xr.CreateSesionAndAllocateSwapchains();
-					}
+					float scaledEyeBufferSizeW = (xr.EyeViewConfigurations[0].recommendedImageRectWidth * renderBufferResoltuionScale);
+					float scaledEyebufferSizeH = xr.EyeViewConfigurations[0].recommendedImageRectHeight * renderBufferResoltuionScale;
 
-					if (XrSessionStarted)
-					{
-						if (ImGui.Button("End XrSession"))
-						{
-							xr.DestroySession();
-							XrSessionStarted = false;
-						}
+					//32 bit per pixel, 2 buffer per swapchain, 3 image depth per swachain;
+					ulong sizeEstimation = (ulong) 3 * 2 * 8 * (ulong)scaledEyeBufferSizeW * (ulong)scaledEyebufferSizeH;
 
-						var yellowColor = new float4();
-						yellowColor.A = 1;
-						yellowColor.R = 1;
-						yellowColor.G = 1;
-						ImGui.TextColored(yellowColor, $"XrSession {xr.Session.Handle}");
+					ImGui.Text($"Would allocate {(uint)scaledEyeBufferSizeW}x{(uint)scaledEyebufferSizeH} pixels per eye.");
+					ImGui.Text($"Estimated Swapchain memory impact {sizeEstimation/1024/1024}MB");
 
-						for (int i = 0; i < 2; ++i)
-						{
-							var pose = xr.MostRecentEyeViewPoses[i];
-							ImGui.Text($"{(OpenXR.EyeIndex)i} eye view pose in LOCAL space:");
-							ImGui.Text($"Pos({pose.position.x}, {pose.position.y}, {pose.position.z})");
-							ImGui.Text($"Rot({pose.orientation.x}, {pose.orientation.y}, {pose.orientation.z}, {pose.orientation.w})");
-						}
-
-					}
-				}
-				else
-				{
-					ImGui.Text("Initialization of OpenXR has failed.");
+					if(ImGui.Button("Start XrSession"))
+						XrSessionStarted = xr.CreateSesionAndAllocateSwapchains(renderBufferResoltuionScale);
 				}
 
-				ImGui.End();
+				if (XrSessionStarted)
+				{
+					if (ImGui.Button("End XrSession"))
+					{
+						xr.DestroySession();
+						XrSessionStarted = false;
+					}
+
+					var yellowColor = new float4();
+					yellowColor.A = 1;
+					yellowColor.R = 1;
+					yellowColor.G = 1;
+					ImGui.TextColored(yellowColor, $"XrSession {xr.Session.Handle}");
+
+					for (int i = 0; i < 2; ++i)
+					{
+						var pose = xr.MostRecentEyeViewPoses[i];
+						ImGui.Text($"{(OpenXR.EyeIndex)i} eye view pose in LOCAL space:");
+						ImGui.Text($"Pos({pose.position.x}, {pose.position.y}, {pose.position.z})");
+						ImGui.Text($"Rot({pose.orientation.x}, {pose.orientation.y}, {pose.orientation.z}, {pose.orientation.w})");
+					}
+
+				}
 			}
+			else
+			{
+				ImGui.Text("Initialization of OpenXR has failed.");
+			}
+
+			ImGui.End();
 		}
 	}
 }
