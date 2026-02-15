@@ -38,8 +38,7 @@ namespace KSA
 				Logger.message("Prefix patch of Core.KSADeviceContextEx");
 
 				var xr = ModInit.openxr;
-				if (xr != null)
-					xr.DeclareUsedVulkanVersion(__0);
+				xr?.DeclareUsedVulkanVersion(__0);
 			}
 
 			static void Postfix(Core.KSADeviceContextEx __instance)

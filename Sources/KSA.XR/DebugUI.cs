@@ -21,7 +21,7 @@ namespace KSA
 			{
 				ImGui.Begin("KSA_XR");
 
-				var xr = Init.openxr;
+				var xr = ModInit.openxr;
 				if (xr != null)
 				{
 					ImGui.Text($"OpenXR Runtime {xr.RuntimeName}");
