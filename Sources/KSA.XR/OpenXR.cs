@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Numerics;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -46,6 +48,17 @@ namespace KSA
 			{
 				return (uint)((ulong)(version) & 0xffffffff);
 			}
+
+			static uint PackVersion(int major, int minor, int patch)
+			{
+				if (major > 0xFFFF) throw new ArgumentOutOfRangeException(nameof(major));
+				if (minor > 0xF) throw new ArgumentOutOfRangeException(nameof(minor)); // 0..15
+				if (patch > 0xFFF) throw new ArgumentOutOfRangeException(nameof(patch)); // 0..4095
+
+				return (uint)((uint)major << 16) | ((uint)minor << 12) | (uint)patch;
+			}
+
+
 			#endregion
 
 			#region Vulkan inputs from Brutal
@@ -87,6 +100,10 @@ namespace KSA
 				//We should check the Vulkan version in use, strictly speaking.
 				var graphicsRequirements = new XrGraphicsRequirementsVulkanKHR();
 				graphicsRequirements.type = XrStructureType.XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN_KHR;
+
+				if (instance.Handle == 0)
+					return;
+
 				unsafe { CheckXRCall(xrGetVulkanGraphicsRequirementsKHR(instance, systemId, &graphicsRequirements)); }
 				Logger.message($"Runtime requires vulkan minimum version {XR_VERSION_MAJOR(graphicsRequirements.minApiVersionSupported)}.{XR_VERSION_MINOR(graphicsRequirements.minApiVersionSupported)}.{XR_VERSION_PATCH(graphicsRequirements.minApiVersionSupported)}");
 				Logger.message($"Runtime requires vulkan maximum version {XR_VERSION_MAJOR(graphicsRequirements.maxApiVersionSupported)}.{XR_VERSION_MINOR(graphicsRequirements.maxApiVersionSupported)}.{XR_VERSION_PATCH(graphicsRequirements.maxApiVersionSupported)}");
@@ -223,7 +240,7 @@ namespace KSA
 			public XrInstance Instance { get { return instance; } }
 			private XrSession session;
 			public XrSession Session { get { return session; } }
-			
+
 			private bool hasSessionBegan = false;
 			XrSpace applicationReferenceStage;
 			ulong systemId = 0;
@@ -389,8 +406,12 @@ namespace KSA
 				var instanceCreateInfo = new XrInstanceCreateInfo();
 				instanceCreateInfo.type = XrStructureType.XR_TYPE_INSTANCE_CREATE_INFO;
 
-				//TODO obtain version strings from the game?
+				var KSAversion = typeof(KSA.App).Assembly.GetName().Version;
+				var BrutalVulkanVersion = typeof(Brutal.VulkanApi.Instance).Assembly.GetName().Version;
+
 				instanceCreateInfo.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0); //OPENXR_API_VERSION_1_0
+				instanceCreateInfo.applicationInfo.applicationVersion = PackVersion(KSAversion.Major, KSAversion.Minor, KSAversion.Build);
+				instanceCreateInfo.applicationInfo.engineVersion = PackVersion(BrutalVulkanVersion.Major, BrutalVulkanVersion.Minor, BrutalVulkanVersion.Build);
 				WriteStringToBuffer("BRUTAL", instanceCreateInfo.applicationInfo.engineName);
 				WriteStringToBuffer("KittenSpaceAgency (KAS_XR mod)", instanceCreateInfo.applicationInfo.applicationName);
 
@@ -536,7 +557,7 @@ namespace KSA
 							Logger.message($"\t- {format}");
 							compatibleSwapchainVulkanFormat.Add(format);
 						}
-						
+
 						var formatSelected = 0; //TODO choose a format from the list for real
 
 						for (int eye = 0; eye < 2; ++eye)
@@ -546,7 +567,7 @@ namespace KSA
 							swapchainCreateInfo.usageFlags = (ulong)XrSwapchainUsageFlags.XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
 							swapchainCreateInfo.mipCount = 1;
 							swapchainCreateInfo.sampleCount = 1;
-							swapchainCreateInfo.format = (long) compatibleSwapchainVulkanFormat[formatSelected];
+							swapchainCreateInfo.format = (long)compatibleSwapchainVulkanFormat[formatSelected];
 							swapchainCreateInfo.faceCount = 1;
 							swapchainCreateInfo.arraySize = 1;
 							swapchainCreateInfo.width = (uint)(eyeViews[eye].recommendedImageRectWidth * pixelScale);
@@ -563,7 +584,7 @@ namespace KSA
 #pragma warning restore CA2014 // Do not use stackalloc in loops
 							for (int img = 0; img < imageCount; ++img)
 								swapchainImageVulkan[img].type = XrStructureType.XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR;
-							CheckXRCall(xrEnumerateSwapchainImages(swapchain, imageCount, &imageCount, (XrSwapchainImageBaseHeader*) swapchainImageVulkan));
+							CheckXRCall(xrEnumerateSwapchainImages(swapchain, imageCount, &imageCount, (XrSwapchainImageBaseHeader*)swapchainImageVulkan));
 							eyeSwapchainImages[eye] = new List<XrSwapchainImageVulkanKHR>();
 							for (int img = 0; img < imageCount; ++img)
 								eyeSwapchainImages[eye].Add(swapchainImageVulkan[img]);
@@ -661,7 +682,7 @@ namespace KSA
 				if (hasSessionBegan)
 					xrEndSession(session);
 
-				for(int i = 0; i < 2; ++i)
+				for (int i = 0; i < 2; ++i)
 				{
 					if (eyeSwapchains[i].Handle != 0)
 						xrDestroySwapchain(eyeSwapchains[i]);
@@ -686,10 +707,13 @@ namespace KSA
 
 			public string[]? GetRequiredVulkanInstanceExtensions()
 			{
-				uint count = 0;
+
+				if (instance.Handle == 0)
+					return null;
 
 				unsafe
 				{
+					uint count = 0;
 					CheckXRCall(xrGetVulkanInstanceExtensionsKHR(instance, systemId, count, &count, null));
 					var buffer = (byte*)Marshal.AllocHGlobal((int)count);
 					CheckXRCall(xrGetVulkanInstanceExtensionsKHR(instance, systemId, count, &count, buffer));
@@ -706,10 +730,12 @@ namespace KSA
 
 			public string[]? GetRequiredVulkanDeviceExtensions()
 			{
-				uint count = 0;
+				if (instance.Handle == 0)
+					return null;
 
 				unsafe
 				{
+					uint count = 0;
 					CheckXRCall(xrGetVulkanDeviceExtensionsKHR(instance, systemId, count, &count, null));
 					var buffer = (byte*)Marshal.AllocHGlobal((int)count);
 					CheckXRCall(xrGetVulkanDeviceExtensionsKHR(instance, systemId, count, &count, buffer));

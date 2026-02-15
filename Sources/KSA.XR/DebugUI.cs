@@ -30,7 +30,6 @@ namespace KSA
 
 					if (!XrSessionStarted && ImGui.Button("Try to start XrSession"))
 					{
-						//signaled_try_init = true;
 						XrSessionStarted = xr.CreateSesionAndAllocateSwapchains();
 					}
 
