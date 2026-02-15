@@ -31,11 +31,17 @@ namespace KSA
 					if (!XrSessionStarted && ImGui.Button("Try to start XrSession"))
 					{
 						//signaled_try_init = true;
-						XrSessionStarted = xr.TryStartSession();
+						XrSessionStarted = xr.CreateSesionAndAllocateSwapchains();
 					}
 
 					if (XrSessionStarted)
 					{
+						if (ImGui.Button("End XrSession"))
+						{
+							xr.DestroySession();
+							XrSessionStarted = false;
+						}
+
 						var yellowColor = new float4();
 						yellowColor.A = 1;
 						yellowColor.R = 1;

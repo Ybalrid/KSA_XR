@@ -22,10 +22,10 @@ namespace KSA
 				Right = 1,
 			};
 
-			public readonly string? RuntimeName;
-			public string? SystemName;
-
-
+			string? runtimeName;
+			string? systemName;
+			public string? RuntimeName { get { return runtimeName; } }
+			public string? SystemName { get { return systemName; } }
 
 
 			#region OpenXR Version Macros (ported from C to C#)
@@ -118,40 +118,27 @@ namespace KSA
 			}
 			#endregion
 
+			#region C string manipulation
 			/// <summary>
-			/// Validates the result of an OpenXR API call and throws an exception if the result indicates failure and is not in
-			/// the list of allowed return codes.
+			/// Allows printing C strings
 			/// </summary>
-			/// <remarks>Use this method to centralize error handling for OpenXR API calls. It allows certain non-success
-			/// result codes to be treated as valid outcomes, simplifying control flow when specific non-error codes are
-			/// expected.</remarks>
-			/// <param name="result">The result value returned by the OpenXR API call to validate.</param>
-			/// <param name="allowedReturnCodes">An optional list of additional OpenXR result codes that are considered acceptable and will not cause an exception
-			/// to be thrown. If null, only a result of XR_SUCCESS is considered successful.</param>
-			/// <exception cref="Exception">Thrown if the result is not XR_SUCCESS and is not included in the allowedReturnCodes list.</exception>
-			/// <returns>Forward the XrResult recived, useful to handle a non-failure error code that was allowed by this API call</returns>
-			private XrResult CheckXRCall(XrResult result, HashSet<XrResult>? allowedReturnCodes = null)
+			/// <param name="ptr">A pointer to a null terminated string</param>
+			/// <returns>A string, or null</returns>
+			private static unsafe string? PtrToString(byte* ptr)
 			{
-				if (result == XrResult.XR_SUCCESS)
-					return result;
-
-				else if (allowedReturnCodes != null && allowedReturnCodes.Contains(result))
-					return result;
-
-				throw new Exception($"OpenXR API call failed {result}");
+				return Marshal.PtrToStringUTF8((IntPtr)(ptr));
 			}
 
 			static unsafe void WriteStringToBuffer(string str, byte* buffer, int buffLen = 128)
 			{
 				int len = buffLen - 1 < str.Length ? buffLen : str.Length;
-
 				for (int i = 0; i < len; ++i)
-				{
 					buffer[i] = (byte)str[i];
-				}
 				buffer[len] = 0;
 			}
+			#endregion
 
+			#region Extension loading support 
 			/// <summary>
 			/// Allocates and initializes an array of pointers to byte buffers, each containing the string representation of a
 			/// specified file extension.
@@ -194,82 +181,62 @@ namespace KSA
 				Marshal.FreeHGlobal((IntPtr)stringListPointers);
 			}
 
-			/// <summary>
-			/// Allows printing C strings
-			/// </summary>
-			/// <param name="ptr">A pointer to a null terminated string</param>
-			/// <returns>A string, or null</returns>
-			private static unsafe string? PtrToString(byte* ptr)
-			{
-				return Marshal.PtrToStringUTF8((IntPtr)(ptr));
-			}
-
 			static List<string> mandatoryOpenXRExtensions = new List<string>
-		{
-			XR_KHR_VULKAN_ENABLE_EXTENSION_NAME
-		};
+			{
+				XR_KHR_VULKAN_ENABLE_EXTENSION_NAME
+			};
 
 			static List<string> optionalOpenXRExtensions = new List<string>
-		{
-			XR_EXT_HAND_INTERACTION_EXTENSION_NAME,
-		};
+			{
+				XR_EXT_HAND_INTERACTION_EXTENSION_NAME,
+			};
+
 
 			Dictionary<string, bool> enabledOptionalExtensions = new Dictionary<string, bool>();
-
-			XrInstance instance;
-			private XrSession session;
-			public XrSession Session
+			List<string> runtimeAvailableOpenXRExtensions = new List<string>();
+			private unsafe void GetListOfAvailableExtensions()
 			{
-				get { return session; }
-			}
+				uint count = 0;
+				var result = xrEnumerateInstanceExtensionProperties(null, count, &count, null);
+				CheckXRCall(result);
 
-			private bool hasSessionBegan = false;
+				var props = stackalloc XrExtensionProperties[(int)count];
+				for (int i = 0; i < count; ++i)
+					props[i].type = XrStructureType.XR_TYPE_EXTENSION_PROPERTIES;
 
-			XrSpace applicationReferenceStage;
+				result = xrEnumerateInstanceExtensionProperties(null, count, &count, props);
+				CheckXRCall(result);
 
-			ulong systemId = 0;
-			XrViewConfigurationType viewConfigurationType;
-			public XrViewConfigurationType ViewConfigurationType
-			{
-				get
+				for (int i = 0; i < count; ++i)
 				{
-					return viewConfigurationType;
+					var prop = props[i];
+					var extName = Marshal.PtrToStringAnsi((IntPtr)prop.extensionName);
+					if (extName == null)
+						throw new Exception("exts must have name!");
+					Logger.message($"\t- {extName} version {prop.extensionVersion}");
+					runtimeAvailableOpenXRExtensions.Add(extName);
 				}
 			}
+			#endregion
 
+			private XrInstance instance;
+			public XrInstance Instance { get { return instance; } }
+			private XrSession session;
+			public XrSession Session { get { return session; } }
+			
+			private bool hasSessionBegan = false;
+			XrSpace applicationReferenceStage;
+			ulong systemId = 0;
+			XrViewConfigurationType viewConfigurationType;
+			public XrViewConfigurationType ViewConfigurationType { get { return viewConfigurationType; } }
 			XrViewConfigurationView[] eyeViews = new XrViewConfigurationView[2];
 			XrEnvironmentBlendMode blendModeToUse;
 
-			List<string> runtimeAvailableOpenXRExtensions = new List<string>();
+			List<Brutal.VulkanApi.VkFormat> compatibleSwapchainVulkanFormat = new List<Brutal.VulkanApi.VkFormat>();
 
-			private void GetListOfAvailableExtensions()
-			{
-				unsafe
-				{
-					uint count = 0;
-					var result = xrEnumerateInstanceExtensionProperties(null, count, &count, null);
-					CheckXRCall(result);
+			XrSwapchain[] eyeSwapchains = new XrSwapchain[2];
+			List<XrSwapchainImageVulkanKHR>[] eyeSwapchainImages = new List<XrSwapchainImageVulkanKHR>[2];
 
-					var props = stackalloc XrExtensionProperties[(int)count];
-					for (int i = 0; i < count; ++i)
-					{
-						props[i].type = XrStructureType.XR_TYPE_EXTENSION_PROPERTIES;
-					}
-
-					result = xrEnumerateInstanceExtensionProperties(null, count, &count, props);
-					CheckXRCall(result);
-
-					for (int i = 0; i < count; ++i)
-					{
-						var prop = props[i];
-						var extName = Marshal.PtrToStringAnsi((IntPtr)prop.extensionName);
-						if (extName == null)
-							throw new Exception("exts must have name!");
-						Logger.message($"\t- {extName} version {prop.extensionVersion}");
-						runtimeAvailableOpenXRExtensions.Add(extName);
-					}
-				}
-			}
 
 			#region OpenXR Debug Infrastructure
 			bool useDebugMessenger = false;
@@ -313,64 +280,58 @@ namespace KSA
 			XrDebugUtilsMessengerEXT DebugUtilsMessenger = new XrDebugUtilsMessengerEXT();
 			#endregion
 
+			/// <summary>
+			/// Initializes a new instance of the OpenXR class and prepares the necessary components for OpenXR functionality.
+			/// </summary>
+			/// <remarks>This constructor attempts to create an OpenXR instance, retrieve the head-mounted display (HMD)
+			/// system, and enumerate available views. If initialization fails, an error is logged. Ensure that the OpenXR
+			/// runtime is properly installed and configured before creating an instance of this class.</remarks>
 			public OpenXR()
 			{
 				try
 				{
 					unsafe
 					{
-						instance = CreateInstance();
-
-#if DEBUG
-						if (useDebugMessenger)
-						{
-							var DebugUtilMessengerCreateInfo = new XrDebugUtilsMessengerCreateInfoEXT();
-							DebugUtilMessengerCreateInfo.type = XrStructureType.XR_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-
-							DebugUtilMessengerCreateInfo.messageSeverities = (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT
-								| (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT //may want to comment this one
-								| (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
-								| (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-							DebugUtilMessengerCreateInfo.messageTypes = (ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
-								| (ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
-								| (ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_CONFORMANCE_BIT_EXT
-								| (ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_CONFORMANCE_BIT_EXT;
-
-							DebugCallbackObj = DebugCallback;
-							DebugMessengerPtr = Marshal.GetFunctionPointerForDelegate(DebugCallbackObj);
-							DebugMessengerHandle = GCHandle.Alloc(DebugCallbackObj);
-
-							DebugUtilMessengerCreateInfo.userCallback = DebugMessengerPtr;
-
-							var DebugUtilsMessenger = new XrDebugUtilsMessengerEXT();
-							var debugInstallResult = xrCreateDebugUtilsMessengerEXT(instance, &DebugUtilMessengerCreateInfo, &DebugUtilsMessenger);
-							this.DebugUtilsMessenger = DebugUtilsMessenger;
-						}
-#endif
-
-						var instanceProperties = new XrInstanceProperties();
-						instanceProperties.type = XrStructureType.XR_TYPE_INSTANCE_PROPERTIES;
-						CheckXRCall(xrGetInstanceProperties(instance, &instanceProperties));
-						Logger.message($"Runtime is {PtrToString(instanceProperties.runtimeName)}");
-						RuntimeName = PtrToString(instanceProperties.runtimeName);
-
+						CreateInstance();
 						GetHMDSystem();
-
 						EnumerateViews();
-
-						uint blendModeCount = 0;
-						xrEnumerateEnvironmentBlendModes(instance, systemId, viewConfigurationType, blendModeCount, &blendModeCount, null);
-						var envBlendModes = stackalloc XrEnvironmentBlendMode[(int)blendModeCount];
-						xrEnumerateEnvironmentBlendModes(instance, systemId, viewConfigurationType, blendModeCount, &blendModeCount, envBlendModes);
-
-						blendModeToUse = envBlendModes[0];
 					}
 				}
 				catch (Exception e)
 				{
-					Logger.error("The first stage initialization of OpenXR failed for some reason. You may re-try creating an OpenXR object.");
+					Logger.error("The first stage initialization of OpenXR failed.");
 					Logger.error(e.ToString());
 				}
+			}
+
+			private unsafe void InstallDebugMessenger()
+			{
+#if DEBUG
+				if (useDebugMessenger)
+				{
+					var DebugUtilMessengerCreateInfo = new XrDebugUtilsMessengerCreateInfoEXT();
+					DebugUtilMessengerCreateInfo.type = XrStructureType.XR_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+
+					DebugUtilMessengerCreateInfo.messageSeverities = (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT
+						| (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT //may want to comment this one
+						| (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
+						| (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+					DebugUtilMessengerCreateInfo.messageTypes = (ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
+						| (ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
+						| (ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_CONFORMANCE_BIT_EXT
+						| (ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_CONFORMANCE_BIT_EXT;
+
+					DebugCallbackObj = DebugCallback;
+					DebugMessengerPtr = Marshal.GetFunctionPointerForDelegate(DebugCallbackObj);
+					DebugMessengerHandle = GCHandle.Alloc(DebugCallbackObj);
+
+					DebugUtilMessengerCreateInfo.userCallback = DebugMessengerPtr;
+
+					var DebugUtilsMessenger = new XrDebugUtilsMessengerEXT();
+					var debugInstallResult = xrCreateDebugUtilsMessengerEXT(instance, &DebugUtilMessengerCreateInfo, &DebugUtilsMessenger);
+					this.DebugUtilsMessenger = DebugUtilsMessenger;
+				}
+#endif
 			}
 
 			private unsafe void EnumerateViews()
@@ -405,6 +366,13 @@ namespace KSA
 					Logger.message($"\t\t- Recommended Height {viewConfigViews[i].recommendedImageRectHeight}");
 					Logger.message($"\t\t- Recommnaded Sample count {viewConfigViews[i].recommendedSwapchainSampleCount}");
 				}
+
+				uint blendModeCount = 0;
+				xrEnumerateEnvironmentBlendModes(instance, systemId, viewConfigurationType, blendModeCount, &blendModeCount, null);
+				var envBlendModes = stackalloc XrEnvironmentBlendMode[(int)blendModeCount];
+				xrEnumerateEnvironmentBlendModes(instance, systemId, viewConfigurationType, blendModeCount, &blendModeCount, envBlendModes);
+
+				blendModeToUse = envBlendModes[0];
 			}
 
 			/// <summary>
@@ -414,7 +382,7 @@ namespace KSA
 			/// current application settings. Ensure that all necessary extensions are enabled before calling this method. If the
 			/// instance creation fails, an exception is thrown.</remarks>
 			/// <returns>A handle to the newly created OpenXR instance, which can be used for subsequent OpenXR API calls.</returns>
-			private unsafe XrInstance CreateInstance()
+			private unsafe void CreateInstance()
 			{
 				XrInstance instance;
 				WrangleOpenXRExtensions();
@@ -450,9 +418,14 @@ namespace KSA
 				FreeExtensionListPointer(instanceCreateInfo.enabledExtensionNames, enabledExtensionsCS.Count);
 				CheckXRCall(res);
 				OpenXRNative.LoadFunctionPointers(instance);
-
 				Logger.message($"Successfully created instance {instance.Handle} with all required and optional extensions");
-				return instance;
+				this.instance = instance;
+				InstallDebugMessenger();
+
+				var instanceProperties = new XrInstanceProperties();
+				instanceProperties.type = XrStructureType.XR_TYPE_INSTANCE_PROPERTIES;
+				CheckXRCall(xrGetInstanceProperties(instance, &instanceProperties));
+				runtimeName = PtrToString(instanceProperties.runtimeName);
 			}
 
 			/// <summary>
@@ -500,12 +473,10 @@ namespace KSA
 				CheckXRCall(xrGetSystemProperties(instance, systemId, &systemProperties));
 
 				Logger.message($"System Name: {PtrToString(systemProperties.systemName)}");
-				SystemName = PtrToString(systemProperties.systemName);
+				systemName = PtrToString(systemProperties.systemName);
 			}
 
-
-			//TODO handle proper session state
-			public bool TryStartSession()
+			public bool CreateSesionAndAllocateSwapchains(float pixelScale = 1f)
 			{
 				try
 				{
@@ -527,7 +498,6 @@ namespace KSA
 							Logger.error($"The device is different than expected got {selectedPhysicalDevice} wanted {graphicsBinding.physicalDevice}");
 							return false;
 						}
-
 
 						sessionCreateInfo.next = (void*)&graphicsBinding;//Khronos do love structure chains
 						graphicsBinding.next = null;
@@ -553,6 +523,7 @@ namespace KSA
 						CheckXRCall(xrCreateReferenceSpace(session, &referenceSpaceCreateInfo, &applicationStageSpace));
 						this.applicationReferenceStage = applicationStageSpace;
 
+						compatibleSwapchainVulkanFormat.Clear();
 						uint formatCount = 0;
 						CheckXRCall(xrEnumerateSwapchainFormats(session, formatCount, &formatCount, null));
 						var formats = stackalloc long[(int)formatCount];
@@ -563,6 +534,41 @@ namespace KSA
 						{
 							var format = (Brutal.VulkanApi.VkFormat)formats[i];
 							Logger.message($"\t- {format}");
+							compatibleSwapchainVulkanFormat.Add(format);
+						}
+						
+						var formatSelected = 0; //TODO choose a format from the list for real
+
+						for (int eye = 0; eye < 2; ++eye)
+						{
+							var swapchainCreateInfo = new XrSwapchainCreateInfo();
+							swapchainCreateInfo.type = XrStructureType.XR_TYPE_SWAPCHAIN_CREATE_INFO;
+							swapchainCreateInfo.usageFlags = (ulong)XrSwapchainUsageFlags.XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+							swapchainCreateInfo.mipCount = 1;
+							swapchainCreateInfo.sampleCount = 1;
+							swapchainCreateInfo.format = (long) compatibleSwapchainVulkanFormat[formatSelected];
+							swapchainCreateInfo.faceCount = 1;
+							swapchainCreateInfo.arraySize = 1;
+							swapchainCreateInfo.width = (uint)(eyeViews[eye].recommendedImageRectWidth * pixelScale);
+							swapchainCreateInfo.height = (uint)(eyeViews[eye].recommendedImageRectHeight * pixelScale);
+
+							var swapchain = new XrSwapchain();
+							CheckXRCall(xrCreateSwapchain(session, &swapchainCreateInfo, &swapchain));
+							eyeSwapchains[eye] = swapchain;
+
+							uint imageCount = 0;
+							CheckXRCall(xrEnumerateSwapchainImages(swapchain, imageCount, &imageCount, null));
+#pragma warning disable CA2014 // Do not use stackalloc in loops
+							var swapchainImageVulkan = stackalloc XrSwapchainImageVulkanKHR[(int)imageCount];
+#pragma warning restore CA2014 // Do not use stackalloc in loops
+							for (int img = 0; img < imageCount; ++img)
+								swapchainImageVulkan[img].type = XrStructureType.XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR;
+							CheckXRCall(xrEnumerateSwapchainImages(swapchain, imageCount, &imageCount, (XrSwapchainImageBaseHeader*) swapchainImageVulkan));
+							eyeSwapchainImages[eye] = new List<XrSwapchainImageVulkanKHR>();
+							for (int img = 0; img < imageCount; ++img)
+								eyeSwapchainImages[eye].Add(swapchainImageVulkan[img]);
+
+							Logger.message($"Allocated swapchain for eye {(EyeIndex)eye}: Format {compatibleSwapchainVulkanFormat[formatSelected]} Size {swapchainCreateInfo.width}x{swapchainCreateInfo.height}");
 						}
 					}
 					return true;
@@ -572,26 +578,6 @@ namespace KSA
 				{
 					Logger.error(e.ToString());
 					return false;
-				}
-
-			}
-
-			float3 trackedPosition;
-			Quaternion trackedOrientation;
-
-			public float3 TrackedPosition
-			{
-				get
-				{
-					return trackedPosition;
-				}
-			}
-
-			public Quaternion TrackedOrientation
-			{
-				get
-				{
-					return TrackedOrientation;
 				}
 			}
 
@@ -640,15 +626,13 @@ namespace KSA
 								if (0 != (viewState.viewStateFlags & (ulong)(XrViewStateFlags.XR_VIEW_STATE_POSITION_VALID_BIT | XrViewStateFlags.XR_VIEW_STATE_POSITION_TRACKED_BIT)))
 								{
 									float3 positionVector = new float3(view.pose.position.x, view.pose.position.y, view.pose.position.z);
-									this.trackedPosition = positionVector;
-									Logger.message($"Primary stereo view {eye} position {positionVector}");
+									//Logger.message($"Primary stereo view {eye} position {positionVector}");
 								}
 
 								if (0 != (viewState.viewStateFlags & (ulong)(XrViewStateFlags.XR_VIEW_STATE_ORIENTATION_VALID_BIT | XrViewStateFlags.XR_VIEW_STATE_ORIENTATION_TRACKED_BIT)))
 								{
 									var quaternion = new Quaternion(view.pose.orientation.x, view.pose.orientation.y, view.pose.orientation.z, view.pose.orientation.w);
-									this.trackedOrientation = quaternion;
-									Logger.message($"Primary stereo view {eye} orientation {quaternion} ");
+									//Logger.message($"Primary stereo view {eye} orientation {quaternion} ");
 								}
 							}
 
@@ -676,6 +660,15 @@ namespace KSA
 			{
 				if (hasSessionBegan)
 					xrEndSession(session);
+
+				for(int i = 0; i < 2; ++i)
+				{
+					if (eyeSwapchains[i].Handle != 0)
+						xrDestroySwapchain(eyeSwapchains[i]);
+					eyeSwapchains[i] = new XrSwapchain();
+					eyeSwapchainImages[i].Clear();
+				}
+
 				xrDestroySession(session);
 				session = new XrSession();
 				hasSessionBegan = false;
@@ -729,6 +722,29 @@ namespace KSA
 				}
 
 				return null;
+			}
+
+			/// <summary>
+			/// Validates the result of an OpenXR API call and throws an exception if the result indicates failure and is not in
+			/// the list of allowed return codes.
+			/// </summary>
+			/// <remarks>Use this method to centralize error handling for OpenXR API calls. It allows certain non-success
+			/// result codes to be treated as valid outcomes, simplifying control flow when specific non-error codes are
+			/// expected.</remarks>
+			/// <param name="result">The result value returned by the OpenXR API call to validate.</param>
+			/// <param name="allowedReturnCodes">An optional list of additional OpenXR result codes that are considered acceptable and will not cause an exception
+			/// to be thrown. If null, only a result of XR_SUCCESS is considered successful.</param>
+			/// <exception cref="Exception">Thrown if the result is not XR_SUCCESS and is not included in the allowedReturnCodes list.</exception>
+			/// <returns>Forward the XrResult recived, useful to handle a non-failure error code that was allowed by this API call</returns>
+			private XrResult CheckXRCall(XrResult result, HashSet<XrResult>? allowedReturnCodes = null)
+			{
+				if (result == XrResult.XR_SUCCESS)
+					return result;
+
+				else if (allowedReturnCodes != null && allowedReturnCodes.Contains(result))
+					return result;
+
+				throw new Exception($"OpenXR API call failed {result}");
 			}
 
 		}
