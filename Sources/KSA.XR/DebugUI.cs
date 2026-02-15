@@ -46,7 +46,7 @@ namespace KSA
 						for (int i = 0; i < 2; ++i)
 						{
 							var pose = xr.MostRecentEyeViewPoses[i];
-							ImGui.Text($"Eye {i} view pose in XR stage:");
+							ImGui.Text($"{(OpenXR.EyeIndex)i} eye view pose in LOCAL space:");
 							ImGui.Text($"Pos({pose.position.x}, {pose.position.y}, {pose.position.z})");
 							ImGui.Text($"Rot({pose.orientation.x}, {pose.orientation.y}, {pose.orientation.z}, {pose.orientation.w})");
 						}
