@@ -1,15 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Numerics;
-using System.Reflection;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-using System.Text;
-using Brutal.Numerics;
+﻿using Brutal.Numerics;
+using Brutal.VulkanApi;
 using Brutal.VulkanApi.Abstractions;
 using Evergine.Bindings.OpenXR;
-using KSA;
+using System.Numerics;
+using System.Runtime.InteropServices;
 using static Evergine.Bindings.OpenXR.OpenXRNative;
 
 namespace KSA
@@ -242,18 +236,21 @@ namespace KSA
 			public XrSession Session { get { return session; } }
 
 			private bool hasSessionBegan = false;
-			XrSpace applicationReferenceStage;
+			XrSpace applicationLocalSpaced;
 			ulong systemId = 0;
 			XrViewConfigurationType viewConfigurationType;
 			public XrViewConfigurationType ViewConfigurationType { get { return viewConfigurationType; } }
 			XrViewConfigurationView[] eyeViews = new XrViewConfigurationView[2];
 			XrEnvironmentBlendMode blendModeToUse;
 
-			List<Brutal.VulkanApi.VkFormat> compatibleSwapchainVulkanFormat = new List<Brutal.VulkanApi.VkFormat>();
+			List<VkFormat> compatibleSwapchainVulkanFormat = new List<VkFormat>();
 
 			XrSwapchain[] eyeSwapchains = new XrSwapchain[2];
 			List<XrSwapchainImageVulkanKHR>[] eyeSwapchainImages = new List<XrSwapchainImageVulkanKHR>[2];
 
+			float2[] eyeRenderTargetSizes = new float2[2];
+			XrPosef[] eyeViewPoses = new XrPosef[2];
+			public XrPosef[] MostRecentEyeViewPoses { get { return eyeViewPoses; } }
 
 			#region OpenXR Debug Infrastructure
 			bool useDebugMessenger = false;
@@ -410,18 +407,22 @@ namespace KSA
 				var BrutalVulkanVersion = typeof(Brutal.VulkanApi.Instance).Assembly.GetName().Version;
 
 				instanceCreateInfo.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0); //OPENXR_API_VERSION_1_0
-				instanceCreateInfo.applicationInfo.applicationVersion = PackVersion(KSAversion.Major, KSAversion.Minor, KSAversion.Build);
-				instanceCreateInfo.applicationInfo.engineVersion = PackVersion(BrutalVulkanVersion.Major, BrutalVulkanVersion.Minor, BrutalVulkanVersion.Build);
+				if (KSAversion != null)
+					instanceCreateInfo.applicationInfo.applicationVersion = PackVersion(KSAversion.Major, KSAversion.Minor, KSAversion.Build);
+				if (BrutalVulkanVersion != null)
+					instanceCreateInfo.applicationInfo.engineVersion = PackVersion(BrutalVulkanVersion.Major, BrutalVulkanVersion.Minor, BrutalVulkanVersion.Build);
 				WriteStringToBuffer("BRUTAL", instanceCreateInfo.applicationInfo.engineName);
 				WriteStringToBuffer("KittenSpaceAgency (KAS_XR mod)", instanceCreateInfo.applicationInfo.applicationName);
 
 				var enabledExtensionsCS = new List<string>();
+				//The following extensions MUST be available, and have been checked before:
 				enabledExtensionsCS.Add(XR_KHR_VULKAN_ENABLE_EXTENSION_NAME);
 #if DEBUG
 				if (useDebugMessenger)
 					enabledExtensionsCS.Add(XR_EXT_DEBUG_UTILS_EXTENSION_NAME);
 #endif
-				//These are stored as a <string, bool> Dictionary
+				//These are optional, and stored as a <string, bool> Dictionary.
+				//If the bool was flagged true, it is legal to enable it.
 				foreach (var extension in enabledOptionalExtensions)
 				{
 					if (extension.Value)
@@ -535,14 +536,14 @@ namespace KSA
 						Logger.message("Session has begun");
 						hasSessionBegan = true;
 
-						//Define a global reference space that is aligned wiht the tracking system STAGE
+						//Define a global reference space that is LOCAL, as this will be intended as a seated/simulator experience
 						XrReferenceSpaceCreateInfo referenceSpaceCreateInfo = new XrReferenceSpaceCreateInfo();
 						referenceSpaceCreateInfo.type = XrStructureType.XR_TYPE_REFERENCE_SPACE_CREATE_INFO;
-						referenceSpaceCreateInfo.referenceSpaceType = XrReferenceSpaceType.XR_REFERENCE_SPACE_TYPE_STAGE;
+						referenceSpaceCreateInfo.referenceSpaceType = XrReferenceSpaceType.XR_REFERENCE_SPACE_TYPE_LOCAL;
 						referenceSpaceCreateInfo.poseInReferenceSpace.orientation.w = 1;//With the rest of the stuct defaulted to zero, this is effectively a identity pose
-						XrSpace applicationStageSpace = new XrSpace();
-						CheckXRCall(xrCreateReferenceSpace(session, &referenceSpaceCreateInfo, &applicationStageSpace));
-						this.applicationReferenceStage = applicationStageSpace;
+						XrSpace applicationLocalSpace = new XrSpace();
+						CheckXRCall(xrCreateReferenceSpace(session, &referenceSpaceCreateInfo, &applicationLocalSpace));
+						this.applicationLocalSpaced = applicationLocalSpace;
 
 						compatibleSwapchainVulkanFormat.Clear();
 						uint formatCount = 0;
@@ -553,7 +554,7 @@ namespace KSA
 						Logger.message("Runtime Swapchain compatible formats");
 						for (int i = 0; i < formatCount; ++i)
 						{
-							var format = (Brutal.VulkanApi.VkFormat)formats[i];
+							var format = (VkFormat)formats[i];
 							Logger.message($"\t- {format}");
 							compatibleSwapchainVulkanFormat.Add(format);
 						}
@@ -572,6 +573,9 @@ namespace KSA
 							swapchainCreateInfo.arraySize = 1;
 							swapchainCreateInfo.width = (uint)(eyeViews[eye].recommendedImageRectWidth * pixelScale);
 							swapchainCreateInfo.height = (uint)(eyeViews[eye].recommendedImageRectHeight * pixelScale);
+							//Save the scaled render target size.
+							eyeRenderTargetSizes[eye].X = swapchainCreateInfo.width;
+							eyeRenderTargetSizes[eye].Y = swapchainCreateInfo.height;
 
 							var swapchain = new XrSwapchain();
 							CheckXRCall(xrCreateSwapchain(session, &swapchainCreateInfo, &swapchain));
@@ -602,6 +606,12 @@ namespace KSA
 				}
 			}
 
+
+			static HashSet<XrResult> waitSwapchainFailsafe = new HashSet<XrResult>
+			{
+				XrResult.XR_TIMEOUT_EXPIRED
+			};
+
 			public void OnFrame(double time)
 			{
 				try
@@ -615,9 +625,7 @@ namespace KSA
 
 							var waitFrameInfo = new XrFrameWaitInfo();
 							waitFrameInfo.type = XrStructureType.XR_TYPE_FRAME_WAIT_INFO;
-
 							CheckXRCall(xrWaitFrame(session, &waitFrameInfo, &frameState));
-
 
 							var frameBeginInfo = new XrFrameBeginInfo();
 							frameBeginInfo.type = XrStructureType.XR_TYPE_FRAME_BEGIN_INFO;
@@ -627,46 +635,110 @@ namespace KSA
 							var viewState = new XrViewState();
 							viewState.type = XrStructureType.XR_TYPE_VIEW_STATE;
 							var views = stackalloc XrView[2];
-							for (int i = 0; i < 2; ++i) views[i].type = XrStructureType.XR_TYPE_VIEW;
+							views[0].type = XrStructureType.XR_TYPE_VIEW;
+							views[1].type = XrStructureType.XR_TYPE_VIEW;
 							uint viewCount = 0;
-
 							var viewLocateInfo = new XrViewLocateInfo();
 							viewLocateInfo.type = XrStructureType.XR_TYPE_VIEW_LOCATE_INFO;
 							viewLocateInfo.displayTime = frameState.predictedDisplayTime;
-							viewLocateInfo.space = applicationReferenceStage;
+							viewLocateInfo.space = applicationLocalSpaced;
 							viewLocateInfo.viewConfigurationType = XrViewConfigurationType.XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
-
-
 							CheckXRCall(xrLocateViews(session, &viewLocateInfo, &viewState, 2, &viewCount, views));
 
 							for (int i = 0; i < viewCount; ++i)
 							{
 								var view = views[i];
 								var eye = (EyeIndex)i;
-
+								eyeViewPoses[i] = new XrPosef();
 								if (0 != (viewState.viewStateFlags & (ulong)(XrViewStateFlags.XR_VIEW_STATE_POSITION_VALID_BIT | XrViewStateFlags.XR_VIEW_STATE_POSITION_TRACKED_BIT)))
 								{
 									float3 positionVector = new float3(view.pose.position.x, view.pose.position.y, view.pose.position.z);
-									//Logger.message($"Primary stereo view {eye} position {positionVector}");
+									eyeViewPoses[i].position = view.pose.position;
 								}
 
 								if (0 != (viewState.viewStateFlags & (ulong)(XrViewStateFlags.XR_VIEW_STATE_ORIENTATION_VALID_BIT | XrViewStateFlags.XR_VIEW_STATE_ORIENTATION_TRACKED_BIT)))
 								{
 									var quaternion = new Quaternion(view.pose.orientation.x, view.pose.orientation.y, view.pose.orientation.z, view.pose.orientation.w);
-									//Logger.message($"Primary stereo view {eye} orientation {quaternion} ");
+									eyeViewPoses[i].orientation = view.pose.orientation;
 								}
 							}
 
 							//sync actions
+							var projectionLayerViews = stackalloc XrCompositionLayerProjectionView[2];
 
-							//render view
+							//Roll through each eye view, and progress through their swapchain images in the order the runtime requests
+							for (int eye = 0; eye < 2; ++eye)
+							{
+								uint index = 0xFFFFFFFF;
+								//obtain swapchain image for current frame
+								var swapchainImageAcquireInfo = new XrSwapchainImageAcquireInfo();
+								swapchainImageAcquireInfo.type = XrStructureType.XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO;
+								CheckXRCall(xrAcquireSwapchainImage(eyeSwapchains[eye], &swapchainImageAcquireInfo, &index));
+
+								var swapchainWaitInfo = new XrSwapchainImageWaitInfo();
+								swapchainWaitInfo.type = XrStructureType.XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO;
+								swapchainWaitInfo.timeout = 1000; //We allow to wait up to 1000 nanoseconds for runtime to finish using swapchain image
+								var waitResult = CheckXRCall(xrWaitSwapchainImage(eyeSwapchains[eye], &swapchainWaitInfo), waitSwapchainFailsafe);
+								if (waitResult == XrResult.XR_SUCCESS)
+								{
+									var eyeSwpachainImage = eyeSwapchainImages[eye][(int)index];
+									VkImage vulkanImageHandle = new VkImage(eyeSwpachainImage.image);
+
+									/*
+									 * Now that all the boiler plate is put in place, it is time to start worrying about pushing pixels...!
+									 *
+									 * The above handle is a VkImage that is owned by the XR runtiem we have been "allowed to touch"
+									 * for the duration of time between the successful call to xrWaitSwapchainImage, up to when we calle xrReleaseSwapchainImage()
+									 *
+									 * There are two options ahead:
+									 *
+									 *   1. We can make BRUTAL immediately render a viewport with the above image as the color attachment. (We also can (and should) also request 
+									 *      the alloation of a depth texture from the OpenXR runtime. We can even submit it to the compositor. Oculus Time/Spwacewarp technology can 
+									 *      make use of it for example).
+									 *
+									 *   2. We cannot do the above easilly, but we can get access to a VkImage onwed by BRUTAL, in that case we can use the runtime's image as a
+									 *      TRANSFER_DST target, and push a copy command to the same Graphcis Queue that we gave the OpenXR runtime access. To do this properly,
+									 *      we would need to change the Swapchain image alloation to already have the right memory layout (to avoid putting an extra barrier) and 
+									 *      eat the cost of the extra VRAM and copy work. Not great, not terrible. Note: This also means that we need to create a command pool,
+									 *      and allocate a couple of command buffer for this work prioro to entering this hot loop, I suppose.
+									 *
+									 * At the time of writing this, I have **no idea** how I am going to get images out of the rest of the game and into this framebuffer... ^^'
+									 */
+
+								}
+								else
+								{
+									//TODO how are we supposed to handle timeout when acquirering OpenXR swapchain image. Do we retry? Do we discard the frame?
+								}
+
+								var swapchainImageReleaseInfo = new XrSwapchainImageReleaseInfo();
+								swapchainImageReleaseInfo.type = XrStructureType.XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO;
+								CheckXRCall(xrReleaseSwapchainImage(eyeSwapchains[eye], &swapchainImageReleaseInfo));
+
+								XrCompositionLayerProjectionView layer = new XrCompositionLayerProjectionView();
+								layer.type = XrStructureType.XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+								layer.pose = views[eye].pose;
+								layer.fov = views[eye].fov;
+								layer.subImage.swapchain = eyeSwapchains[eye];
+								layer.subImage.imageRect.extent.width = (int)eyeRenderTargetSizes[eye].X;
+								layer.subImage.imageRect.extent.height = (int)eyeRenderTargetSizes[eye].Y;
+								projectionLayerViews[eye] = layer;
+							}
+
+							XrCompositionLayerProjection layerProjection = new XrCompositionLayerProjection();
+							layerProjection.type = XrStructureType.XR_TYPE_COMPOSITION_LAYER_PROJECTION;
+							layerProjection.space = applicationLocalSpaced;
+							layerProjection.viewCount = 2;
+							layerProjection.views = projectionLayerViews;
+							var layers = stackalloc XrCompositionLayerProjection*[1];
+							layers[0] = &layerProjection;
 
 							var frameEndInfo = new XrFrameEndInfo();
 							frameEndInfo.type = XrStructureType.XR_TYPE_FRAME_END_INFO;
-							//populate composion layers
+							frameEndInfo.layerCount = 1;
+							frameEndInfo.layers = (XrCompositionLayerBaseHeader**)layers;
 							frameEndInfo.environmentBlendMode = blendModeToUse;
 							frameEndInfo.displayTime = frameState.predictedDisplayTime;
-
 							CheckXRCall(xrEndFrame(session, &frameEndInfo));
 						}
 					}

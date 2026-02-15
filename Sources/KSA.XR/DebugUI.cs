@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-using Brutal.ImGuiApi;
+﻿using Brutal.ImGuiApi;
 using Brutal.Numerics;
 
 namespace KSA
@@ -46,6 +42,15 @@ namespace KSA
 						yellowColor.R = 1;
 						yellowColor.G = 1;
 						ImGui.TextColored(yellowColor, $"XrSession {xr.Session.Handle}");
+
+						for (int i = 0; i < 2; ++i)
+						{
+							var pose = xr.MostRecentEyeViewPoses[i];
+							ImGui.Text($"Eye {i} view pose in XR stage:");
+							ImGui.Text($"Pos({pose.position.x}, {pose.position.y}, {pose.position.z})");
+							ImGui.Text($"Rot({pose.orientation.x}, {pose.orientation.y}, {pose.orientation.z}, {pose.orientation.w})");
+						}
+
 					}
 				}
 				else
