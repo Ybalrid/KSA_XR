@@ -10,7 +10,7 @@ namespace KSA
 		/// The mod's main entry point. This class sereves as the holder of state for the rest of the XR mod
 		/// </summary>
 		[StarMapMod]
-		public class ModLoader
+		public class Init
 		{
 			public static OpenXR? openxr;
 			public static DebugUI? ui;

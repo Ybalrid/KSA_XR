@@ -1,6 +1,3 @@
-using System.Collections.Generic;
-using System.Linq;
-using System.Reflection;
 using HarmonyLib;
 using Brutal.VulkanApi.Abstractions;
 using Evergine.Bindings.OpenXR;
@@ -11,7 +8,7 @@ namespace KSA
 	{
 		[HarmonyPatch(typeof(VulkanHelpers))]
 		[HarmonyPatch(nameof(VulkanHelpers.AddSurfaceExtensions))]
-		public static class VulkanSurfaceExtensionPatch
+		internal static class VulkanSurfaceExtensionPatch
 		{
 			static void Postfix(HashSet<string> __0)
 			{
@@ -22,7 +19,7 @@ namespace KSA
 
 		[HarmonyPatch(typeof(VulkanHelpers))]
 		[HarmonyPatch(nameof(VulkanHelpers.AddSwapchainExtensions))]
-		public static class VulkanDeviceExtensionPatch
+		internal static class VulkanDeviceExtensionPatch
 		{
 			static void Postfix(HashSet<string> __0)
 			{
@@ -34,13 +31,13 @@ namespace KSA
 		[HarmonyPatch(typeof(Core.KSADeviceContextEx))]
 		[HarmonyPatch(MethodType.Constructor)]
 		[HarmonyPatch(new[] { typeof(Brutal.VulkanApi.Abstractions.VulkanHelpers.Api) })]
-		public static class VulkanKSADeviceContextExCtorPatch
+		internal static class VulkanKSADeviceContextExCtorPatch
 		{
 			static void Prefix(Brutal.VulkanApi.Abstractions.VulkanHelpers.Api __0)
 			{
 				Logger.message("Prefix patch of Core.KSADeviceContextEx");
 
-				var xr = ModLoader.openxr;
+				var xr = Init.openxr;
 				if (xr != null)
 					xr.DeclareUsedVulkanVersion(__0);
 			}
@@ -49,7 +46,7 @@ namespace KSA
 			{
 				Logger.message("Postfix patch of Core.KSADeviceContextEx");
 
-				var xr = ModLoader.openxr;
+				var xr = Init.openxr;
 				if (xr == null)
 					Logger.error("Vulkan has been initialized before OpenXR was successuflly initialized. This cannot work.");
 				else
@@ -59,7 +56,7 @@ namespace KSA
 
 		[HarmonyPatch(typeof(Core.Renderer))]
 		[HarmonyPatch("CreateGraphicsAndComputeQueue")]
-		public static class VulkanRendererCreateGraphicsAndComputerQueue
+		internal static class VulkanRendererCreateGraphicsAndComputerQueue
 		{
 
 			static void Prefix(Core.Renderer __instance)
@@ -69,35 +66,24 @@ namespace KSA
 
 			static void Postfix(Core.Renderer __instance)
 			{
+				//NOTE: The enigne both initialize a "Graphics" and a "GraphicsAndCompute" queue.
+				//I suppose that in most hardware, it's the same thing anyways.
 				int index = __instance.GraphicsAndCompute.Index;
 				int family = __instance.GraphicsAndCompute.Family;
 
-				var xr = ModLoader.openxr;
-
+				var xr = Init.openxr;
 				if (xr != null)
 					xr.SetQueue(index, family);
-
-			}
-		}
-
-		[HarmonyPatch(typeof(Brutal.VulkanApi.Device))]
-		[HarmonyPatch("GetQueue")]
-		public static class VulkanGetQueuePatch
-		{
-			static int CallCount = 0;
-			static void Prefix(int __0, int __1)
-			{
-				Logger.message($"GetQueue call {CallCount++}: family {__0} index {__1}");
 			}
 		}
 
 		static class VulkanExtensionPatchHelpers
 		{
-			public static void InjectOpenXrInstanceExtensions(HashSet<string> extensions, string source)
+			internal static void InjectOpenXrInstanceExtensions(HashSet<string> extensions, string source)
 			{
 				try
 				{
-					var xr = ModLoader.openxr;
+					var xr = Init.openxr;
 					if (xr == null)
 					{
 						Logger.warning($"{source}: OpenXR is not initialized yet.");
@@ -129,11 +115,11 @@ namespace KSA
 				}
 			}
 
-			public static void InjectOpenXrDeviceExtensions(HashSet<string> extensions, string source)
+			internal static void InjectOpenXrDeviceExtensions(HashSet<string> extensions, string source)
 			{
 				try
 				{
-					var xr = ModLoader.openxr;
+					var xr = Init.openxr;
 					if (xr == null)
 					{
 						Logger.warning($"{source}: OpenXR is not initialized yet.");
@@ -165,7 +151,7 @@ namespace KSA
 				}
 			}
 
-			public static void ObtainAccessToVulkanContext(Core.KSADeviceContextEx VulkanDeviceContext, OpenXR xrContext)
+			internal static void ObtainAccessToVulkanContext(Core.KSADeviceContextEx VulkanDeviceContext, OpenXR xrContext)
 			{
 				XrGraphicsBindingVulkanKHR vulkanBindings = new XrGraphicsBindingVulkanKHR();
 				vulkanBindings.type = XrStructureType.XR_TYPE_GRAPHICS_BINDING_VULKAN_KHR;
