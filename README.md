@@ -2,7 +2,7 @@
 
 [OpenXR 1.0](https://www.khronos.org/openxr/) support for [Kittens Space Agency](https://ahwoo.com/app/100000/kitten-space-agency)
 
-This mode is intended to support any OpenXR compatible system implementing the HMD Form Factor, with a primary stereo view.
+This mod is intended to support any OpenXR compatible system implementing the HMD Form Factor, with a primary stereo view.
 
 
 This mod is written against the [StarMap loader](https://github.com/StarMapLoader/StarMap)
