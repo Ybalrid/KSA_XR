@@ -263,6 +263,7 @@ namespace KSA
 
 			VkCommandPool copyCommandPool;
 			CommandBuffer copyCommandBuffer;
+			VkFence copyFence;
 			Brutal.VulkanApi.Instance vkInstance;
 			Brutal.VulkanApi.Device vkDevice;
 			Brutal.VulkanApi.Queue vkQueue;
@@ -564,6 +565,9 @@ namespace KSA
 						DeviceExtensions.AllocateCommandBuffers(vkDevice, commandBufferAllocateInfo, copyCommandbuffers);
 						copyCommandBuffer = copyCommandbuffers[0];
 
+						var fenceCreateInfo = new VkFenceCreateInfo();
+						copyFence = VkDeviceExtensions.CreateFence(vkDevice, ref fenceCreateInfo, null);
+
 						var sessionBeginInfo = new XrSessionBeginInfo();
 						sessionBeginInfo.type = XrStructureType.XR_TYPE_SESSION_BEGIN_INFO;
 						sessionBeginInfo.primaryViewConfigurationType = viewConfigurationType;
@@ -742,21 +746,176 @@ namespace KSA
 									 *      and allocate a couple of command buffer for this work prioro to entering this hot loop, I suppose.
 									 *
 									 * At the time of writing this, I have **no idea** how I am going to get images out of the rest of the game and into this framebuffer... ^^'
+									 *
+									 * Solution #1 is better technically, but the game engine is probably not able to provide these features without a lot of hacking, and I would try to keep
+									 * the surface of mandatory runtime patches as small as possible. The least I do, the least it can break by a game update.
+									 * 
+									 * Solution #2 is actually pretty straightfoward as long as a KSA.Viewport is availble, and assuming the games renders it properly. 
+									 * The main winodw is such Viewport.
+									 * 
+									 * As a POC the following obtains backbuffer of main game viewport, and just blit it as-is onto the OpenXR swapchain.
 									 */
 
-									//HACK
-									//As a POC try to obtain backbuffer of main game viewport
 									var target = Program.MainViewport.OffscreenTarget;
 									var sourceImage = target.ColorImage.Image;
+									var srcSize = Program.MainViewport.Size;
 
+									//TODO All of those vulkan structures can probably be allocated just once, to put them outisde this hot path
+									var sourceToTransferBarrier = new VkImageMemoryBarrier();
+									sourceToTransferBarrier.SrcAccessMask = VkAccessFlags.ColorAttachmentWriteBit;
+									sourceToTransferBarrier.DstAccessMask = VkAccessFlags.TransferReadBit;
+									sourceToTransferBarrier.OldLayout = VkImageLayout.ColorAttachmentOptimal;
+									sourceToTransferBarrier.NewLayout = VkImageLayout.TransferSrcOptimal;
+									sourceToTransferBarrier.SrcQueueFamilyIndex = -1;
+									sourceToTransferBarrier.DstQueueFamilyIndex = -1;
+									sourceToTransferBarrier.Image = sourceImage;
+									sourceToTransferBarrier.SubresourceRange.AspectMask = VkImageAspectFlags.ColorBit;
+									sourceToTransferBarrier.SubresourceRange.BaseMipLevel = 0;
+									sourceToTransferBarrier.SubresourceRange.LevelCount = 1;
+									sourceToTransferBarrier.SubresourceRange.BaseArrayLayer = 0;
+									sourceToTransferBarrier.SubresourceRange.LayerCount = 1;
+
+									var destToTransferBarrier = new VkImageMemoryBarrier();
+									destToTransferBarrier.SrcAccessMask = VkAccessFlags.None;
+									destToTransferBarrier.DstAccessMask = VkAccessFlags.TransferWriteBit;
+									destToTransferBarrier.OldLayout = VkImageLayout.ColorAttachmentOptimal;
+									destToTransferBarrier.NewLayout = VkImageLayout.TransferDstOptimal;
+									destToTransferBarrier.SrcQueueFamilyIndex = -1;
+									destToTransferBarrier.DstQueueFamilyIndex = -1;
+									destToTransferBarrier.Image = vulkanImageHandle;
+									destToTransferBarrier.SubresourceRange.AspectMask = VkImageAspectFlags.ColorBit;
+									destToTransferBarrier.SubresourceRange.BaseMipLevel = 0;
+									destToTransferBarrier.SubresourceRange.LevelCount = 1;
+									destToTransferBarrier.SubresourceRange.BaseArrayLayer = 0;
+									destToTransferBarrier.SubresourceRange.LayerCount = 1;
+
+									var sourceBackToColorBarrier = new VkImageMemoryBarrier();
+									sourceBackToColorBarrier.SrcAccessMask = VkAccessFlags.TransferReadBit;
+									sourceBackToColorBarrier.DstAccessMask = VkAccessFlags.ColorAttachmentWriteBit;
+									sourceBackToColorBarrier.OldLayout = VkImageLayout.TransferSrcOptimal;
+									sourceBackToColorBarrier.NewLayout = VkImageLayout.ColorAttachmentOptimal;
+									sourceBackToColorBarrier.SrcQueueFamilyIndex = -1;
+									sourceBackToColorBarrier.DstQueueFamilyIndex = -1;
+									sourceBackToColorBarrier.Image = sourceImage;
+									sourceBackToColorBarrier.SubresourceRange.AspectMask = VkImageAspectFlags.ColorBit;
+									sourceBackToColorBarrier.SubresourceRange.BaseMipLevel = 0;
+									sourceBackToColorBarrier.SubresourceRange.LevelCount = 1;
+									sourceBackToColorBarrier.SubresourceRange.BaseArrayLayer = 0;
+									sourceBackToColorBarrier.SubresourceRange.LayerCount = 1;
+
+									var destToColorBarrier = new VkImageMemoryBarrier();
+									destToColorBarrier.SrcAccessMask = VkAccessFlags.TransferWriteBit;
+									destToColorBarrier.DstAccessMask = VkAccessFlags.MemoryReadBit;
+									destToColorBarrier.OldLayout = VkImageLayout.TransferDstOptimal;
+									destToColorBarrier.NewLayout = VkImageLayout.ColorAttachmentOptimal;
+									destToColorBarrier.SrcQueueFamilyIndex = -1;
+									destToColorBarrier.DstQueueFamilyIndex = -1;
+									destToColorBarrier.Image = vulkanImageHandle;
+									destToColorBarrier.SubresourceRange.AspectMask = VkImageAspectFlags.ColorBit;
+									destToColorBarrier.SubresourceRange.BaseMipLevel = 0;
+									destToColorBarrier.SubresourceRange.LevelCount = 1;
+									destToColorBarrier.SubresourceRange.BaseArrayLayer = 0;
+									destToColorBarrier.SubresourceRange.LayerCount = 1;
+
+									var blitRegion = new VkImageBlit();
+									blitRegion.SrcSubresource.AspectMask = VkImageAspectFlags.ColorBit;
+									blitRegion.SrcSubresource.MipLevel = 0;
+									blitRegion.SrcSubresource.BaseArrayLayer = 0;
+									blitRegion.SrcSubresource.LayerCount = 1;
+									blitRegion.DstSubresource.AspectMask = VkImageAspectFlags.ColorBit;
+									blitRegion.DstSubresource.MipLevel = 0;
+									blitRegion.DstSubresource.BaseArrayLayer = 0;
+									blitRegion.DstSubresource.LayerCount = 1;
+									blitRegion.SrcOffsets[0] = new VkOffset3D();
+									blitRegion.SrcOffsets[1] = new VkOffset3D();
+									blitRegion.SrcOffsets[1].X = srcSize.X;
+									blitRegion.SrcOffsets[1].Y = srcSize.Y;
+									blitRegion.SrcOffsets[1].Z = 1;
+									blitRegion.DstOffsets[0] = new VkOffset3D();
+									blitRegion.DstOffsets[1] = new VkOffset3D();
+									blitRegion.DstOffsets[1].X = (int)eyeRenderTargetSizes[eye].X;
+									blitRegion.DstOffsets[1].Y = (int)eyeRenderTargetSizes[eye].Y;
+									blitRegion.DstOffsets[1].Z = 1;
+
+
+									Span<VkFence> fencesToReset = stackalloc VkFence[1];
+									fencesToReset[0] = copyFence;
+									vkDevice.ResetFences(fencesToReset);
+									copyCommandBuffer.Reset(VkCommandBufferResetFlags.None);
+
+									var beginInfo = new VkCommandBufferBeginInfo();
+									beginInfo.Flags = VkCommandBufferUsageFlags.OneTimeSubmitBit;
+									copyCommandBuffer.Begin(beginInfo);
+
+									//Transition the memory layout of both texture as source and destination for copy
+									Span<VkImageMemoryBarrier> imageBarriers = stackalloc VkImageMemoryBarrier[1];
+									imageBarriers[0] = sourceToTransferBarrier;
+									copyCommandBuffer.PipelineBarrier(
+										VkPipelineStageFlags.ColorAttachmentOutputBit,
+										VkPipelineStageFlags.TransferBit,
+										VkDependencyFlags.None,
+										default,
+										default,
+										imageBarriers);
+									imageBarriers[0] = destToTransferBarrier;
+									copyCommandBuffer.PipelineBarrier(
+										VkPipelineStageFlags.TopOfPipeBit,
+										VkPipelineStageFlags.TransferBit,
+										VkDependencyFlags.None,
+										default,
+										default,
+										imageBarriers);
+
+									//BLIT one onto the other
+									Span<VkImageBlit> blitRegions = stackalloc VkImageBlit[1];
+									blitRegions[0] = blitRegion;
+									copyCommandBuffer.BlitImage(
+										sourceImage,
+										VkImageLayout.TransferSrcOptimal,
+										vulkanImageHandle,
+										VkImageLayout.TransferDstOptimal,
+										blitRegions,
+										VkFilter.Linear);
+
+									//Restore source back to a color attachment
+									imageBarriers[0] = sourceBackToColorBarrier;
+									copyCommandBuffer.PipelineBarrier(
+										VkPipelineStageFlags.TransferBit,
+										VkPipelineStageFlags.ColorAttachmentOutputBit,
+										VkDependencyFlags.None,
+										default,
+										default,
+										imageBarriers);
+									imageBarriers[0] = destToColorBarrier;
+									copyCommandBuffer.PipelineBarrier(
+										VkPipelineStageFlags.TransferBit,
+										VkPipelineStageFlags.BottomOfPipeBit,
+										VkDependencyFlags.None,
+										default,
+										default,
+										imageBarriers);
+
+									copyCommandBuffer.End();
+
+									//Do the work
+									var submitInfo = new VkSubmitInfo();
+									var bufferArray = stackalloc VkCommandBuffer[1];
+									bufferArray[0] = (VkCommandBuffer) copyCommandBuffer.Handle;
+									submitInfo.CommandBuffers = bufferArray;
+									submitInfo.CommandBufferCount = 1;
+									Span<VkSubmitInfo> submitInfos = stackalloc VkSubmitInfo[1];
+									submitInfos[0] = submitInfo;
+									vkQueue.Submit(submitInfos, copyFence);
 									
-
+									//Make sure it's done
+									vkDevice.WaitForFences(fencesToReset, true, (nint)(-1));
 								}
 								else
 								{
 									//TODO how are we supposed to handle timeout when acquirering OpenXR swapchain image. Do we retry? Do we discard the frame?
 								}
 
+								//When we are finished with the image, we can release it so the runtime can start ingesting it
 								var swapchainImageReleaseInfo = new XrSwapchainImageReleaseInfo();
 								swapchainImageReleaseInfo.type = XrStructureType.XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO;
 								CheckXRCall(xrReleaseSwapchainImage(eyeSwapchains[eye], &swapchainImageReleaseInfo));
@@ -771,6 +930,7 @@ namespace KSA
 								projectionLayerViews[eye] = layer;
 							}
 
+							//We render VR, perspective projections that goes right in front of your eyes
 							XrCompositionLayerProjection layerProjection = new XrCompositionLayerProjection();
 							layerProjection.type = XrStructureType.XR_TYPE_COMPOSITION_LAYER_PROJECTION;
 							layerProjection.space = applicationLocalSpaced;
@@ -809,6 +969,11 @@ namespace KSA
 				{
 					vkDevice.DestroyCommandPool(copyCommandPool, null);
 					copyCommandPool = new VkCommandPool();
+				}
+				if (copyFence.VkHandle != 0)
+				{
+					vkDevice.DestroyFence(copyFence, null);
+					copyFence = new VkFence();
 				}
 
 				if (hasSessionBegan)
