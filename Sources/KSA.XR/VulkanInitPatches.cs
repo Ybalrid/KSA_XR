@@ -8,7 +8,7 @@ namespace KSA
 	{
 		[HarmonyPatch(typeof(VulkanHelpers))]
 		[HarmonyPatch(nameof(VulkanHelpers.AddSurfaceExtensions))]
-		internal static class VulkanSurfaceExtensionPatch
+		internal static class VulkanInstanceExtensionPatch
 		{
 			static void Postfix(HashSet<string> __0)
 			{
@@ -37,7 +37,7 @@ namespace KSA
 			{
 				Logger.message("Prefix patch of Core.KSADeviceContextEx");
 
-				var xr = Init.openxr;
+				var xr = ModInit.openxr;
 				if (xr != null)
 					xr.DeclareUsedVulkanVersion(__0);
 			}
@@ -46,7 +46,7 @@ namespace KSA
 			{
 				Logger.message("Postfix patch of Core.KSADeviceContextEx");
 
-				var xr = Init.openxr;
+				var xr = ModInit.openxr;
 				if (xr == null)
 					Logger.error("Vulkan has been initialized before OpenXR was successuflly initialized. This cannot work.");
 				else
@@ -71,9 +71,8 @@ namespace KSA
 				int index = __instance.GraphicsAndCompute.Index;
 				int family = __instance.GraphicsAndCompute.Family;
 
-				var xr = Init.openxr;
-				if (xr != null)
-					xr.SetQueue(index, family);
+				var xr = ModInit.openxr;
+				xr?.SetQueue(index, family);
 			}
 		}
 
@@ -83,7 +82,7 @@ namespace KSA
 			{
 				try
 				{
-					var xr = Init.openxr;
+					var xr = ModInit.openxr;
 					if (xr == null)
 					{
 						Logger.warning($"{source}: OpenXR is not initialized yet.");
@@ -119,7 +118,7 @@ namespace KSA
 			{
 				try
 				{
-					var xr = Init.openxr;
+					var xr = ModInit.openxr;
 					if (xr == null)
 					{
 						Logger.warning($"{source}: OpenXR is not initialized yet.");
