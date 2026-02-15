@@ -160,6 +160,7 @@ namespace KSA
 				vulkanBindings.queueIndex = (uint)VulkanDeviceContext.Graphics.Index;
 
 				xrContext.SetVulkanBinding(vulkanBindings);
+				xrContext.SetBrutalVulkan(VulkanDeviceContext.Device, VulkanDeviceContext.Instance, VulkanDeviceContext.Graphics);
 			}
 		}
 	}

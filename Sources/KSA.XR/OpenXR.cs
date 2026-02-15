@@ -122,6 +122,13 @@ namespace KSA
 				vulkanContextInfo = vulkanContext;
 			}
 
+			public void SetBrutalVulkan(Brutal.VulkanApi.Device device, Brutal.VulkanApi.Instance instance, Brutal.VulkanApi.Queue queue)
+			{
+				vkInstance = instance;
+				vkDevice = device;
+				vkQueue = queue;
+			}
+
 			public void SetQueue(int index, int family)
 			{
 				vulkanContextInfo.queueIndex = (uint)index;
@@ -253,6 +260,13 @@ namespace KSA
 			float2[] eyeRenderTargetSizes = new float2[2];
 			XrPosef[] eyeViewPoses = new XrPosef[2];
 			public XrPosef[] MostRecentEyeViewPoses => eyeViewPoses;
+
+			VkCommandPool copyCommandPool;
+			CommandBuffer copyCommandBuffer;
+
+			Brutal.VulkanApi.Instance vkInstance;
+			Brutal.VulkanApi.Device vkDevice;
+			Brutal.VulkanApi.Queue vkQueue;
 
 			#region OpenXR Debug Infrastructure
 			bool useDebugMessenger = false;
@@ -524,12 +538,28 @@ namespace KSA
 							return false;
 						}
 
-						sessionCreateInfo.next = (void*)&graphicsBinding;//Khronos do love structure chains
+						sessionCreateInfo.next = &graphicsBinding;//Khronos do love structure chains
 						graphicsBinding.next = null;
 						var session = new XrSession();
 						CheckXRCall(xrCreateSession(instance, &sessionCreateInfo, &session));
 						this.session = session;
 						Logger.message($"Created OpenXR Session with handle {session.Handle}");
+
+						//The fact that we have created an OpenXR session using the Instance/Device/Queue obtained from BRUTAL means that 
+						//we can effectively do Vulkan related work
+
+						//Allocate a separate command buffer pool for internal OpenXR work.
+						var commandPoolCreateInfo = new VkCommandPoolCreateInfo();
+						commandPoolCreateInfo.QueueFamilyIndex = (int)graphicsBinding.queueFamilyIndex;
+						copyCommandPool = VkDeviceExtensions.CreateCommandPool(vkDevice, ref commandPoolCreateInfo, null);
+
+						var commandBufferAllocateInfo = new VkCommandBufferAllocateInfo();
+						commandBufferAllocateInfo.CommandPool = copyCommandPool;
+						commandBufferAllocateInfo.Level = VkCommandBufferLevel.Primary;
+						//Note: Need to use this overload as there are no way to set the CommandBufferCount parameter of the above struct without hacks (it's `internal`)
+						Span<CommandBuffer> copyCommandbuffers = stackalloc CommandBuffer[1];
+						DeviceExtensions.AllocateCommandBuffers(vkDevice, commandBufferAllocateInfo, copyCommandbuffers);
+						copyCommandBuffer = copyCommandbuffers[0];
 
 						var sessionBeginInfo = new XrSessionBeginInfo();
 						sessionBeginInfo.type = XrStructureType.XR_TYPE_SESSION_BEGIN_INFO;
@@ -568,7 +598,7 @@ namespace KSA
 						{
 							var swapchainCreateInfo = new XrSwapchainCreateInfo();
 							swapchainCreateInfo.type = XrStructureType.XR_TYPE_SWAPCHAIN_CREATE_INFO;
-							swapchainCreateInfo.usageFlags = (ulong)XrSwapchainUsageFlags.XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+							swapchainCreateInfo.usageFlags = (ulong)XrSwapchainUsageFlags.XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT|(ulong)XrSwapchainUsageFlags.XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT;
 							swapchainCreateInfo.mipCount = 1;
 							swapchainCreateInfo.sampleCount = 1;
 							swapchainCreateInfo.format = (long)compatibleSwapchainVulkanFormat[formatSelected];
@@ -754,6 +784,20 @@ namespace KSA
 
 			public void DestroySession()
 			{
+				//Cleanup all our Vulkan objects, if allocated
+				if (copyCommandBuffer.VkHandle != 0)
+				{
+					Span<CommandBuffer> commandBuffersToFree = stackalloc CommandBuffer[1];
+					commandBuffersToFree[0] = copyCommandBuffer;
+					vkDevice.FreeCommandBuffers(copyCommandPool, commandBuffersToFree);
+					copyCommandBuffer = new CommandBuffer();
+				}
+				if (copyCommandPool.VkHandle != 0)
+				{
+					vkDevice.DestroyCommandPool(copyCommandPool, null);
+					copyCommandPool = new VkCommandPool();
+				}
+
 				if (hasSessionBegan)
 					xrEndSession(session);
 
