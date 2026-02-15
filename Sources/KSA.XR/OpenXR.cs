@@ -263,10 +263,12 @@ namespace KSA
 
 			VkCommandPool copyCommandPool;
 			CommandBuffer copyCommandBuffer;
-
 			Brutal.VulkanApi.Instance vkInstance;
 			Brutal.VulkanApi.Device vkDevice;
 			Brutal.VulkanApi.Queue vkQueue;
+
+			KSA.Viewport?[] eyeViewports = new KSA.Viewport[2];
+
 
 			#region OpenXR Debug Infrastructure
 			bool useDebugMessenger = false;
@@ -551,6 +553,7 @@ namespace KSA
 						//Allocate a separate command buffer pool for internal OpenXR work.
 						var commandPoolCreateInfo = new VkCommandPoolCreateInfo();
 						commandPoolCreateInfo.QueueFamilyIndex = (int)graphicsBinding.queueFamilyIndex;
+						commandPoolCreateInfo.Flags = VkCommandPoolCreateFlags.ResetCommandBufferBit;
 						copyCommandPool = VkDeviceExtensions.CreateCommandPool(vkDevice, ref commandPoolCreateInfo, null);
 
 						var commandBufferAllocateInfo = new VkCommandBufferAllocateInfo();
@@ -613,6 +616,9 @@ namespace KSA
 							var swapchain = new XrSwapchain();
 							CheckXRCall(xrCreateSwapchain(session, &swapchainCreateInfo, &swapchain));
 							eyeSwapchains[eye] = swapchain;
+
+							//Doing this crashes the game!
+							//eyeViewports[eye] =  XrViewports.AddViewport(new int2((int)eyeRenderTargetSizes[eye].X, (int)eyeRenderTargetSizes[eye].Y), true, false);
 
 							uint imageCount = 0;
 							CheckXRCall(xrEnumerateSwapchainImages(swapchain, imageCount, &imageCount, null));
@@ -737,6 +743,13 @@ namespace KSA
 									 *
 									 * At the time of writing this, I have **no idea** how I am going to get images out of the rest of the game and into this framebuffer... ^^'
 									 */
+
+									//HACK
+									//As a POC try to obtain backbuffer of main game viewport
+									var target = Program.MainViewport.OffscreenTarget;
+									var sourceImage = target.ColorImage.Image;
+
+									
 
 								}
 								else
