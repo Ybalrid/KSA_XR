@@ -5,6 +5,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using Brutal.Numerics;
+using Brutal.VulkanApi.Abstractions;
 using Evergine.Bindings.OpenXR;
 using KSA;
 using static Evergine.Bindings.OpenXR.OpenXRNative;
@@ -23,19 +24,9 @@ namespace KSA_XR
 		public readonly string SystemName;
 
 		XrPosef identityPose = new XrPosef();
-		private XrGraphicsBindingVulkanKHR vulkanContextInfo;
 
-		public void SetVulkanBinding(XrGraphicsBindingVulkanKHR vulkanContext)
-		{
-			vulkanContextInfo = vulkanContext;
-		}
 
-		public void SetQueue(int index, int family)
-		{
-			vulkanContextInfo.queueIndex = (uint)index;
-			vulkanContextInfo.queueFamilyIndex = (uint)family;
-		}
-
+		#region OpenXR Version Macros (ported from C to C#)
 		static ulong XR_MAKE_VERSION(ulong major, ulong minor, ulong patch)
 		{
 			return ((((major) & 0xffff) << 48) | (((minor) & 0xffff) << 32) | ((patch) & 0xffffffff));
@@ -49,10 +40,103 @@ namespace KSA_XR
 		{
 			return (ushort)(((ulong)(version) >> 32) & 0xffff);
 		}
-
 		static uint XR_VERSION_PATCH(ulong version)
 		{
 			return (uint)((ulong)(version) & 0xffffffff);
+		}
+		#endregion
+
+		#region Vulkan inputs from Brutal
+		private uint VK_VERSION_MAJOR(VulkanHelpers.Api version)
+		{
+			return (uint)(version) >> 22;
+		}
+		
+		private uint VK_VERSION_MINOR(VulkanHelpers.Api version)
+		{
+			return ((uint)(version) >> 12) & 0x3FF;
+		}
+
+		private uint VK_VERSION_PATCH(VulkanHelpers.Api version)
+		{
+			return (uint)(version) & 0xFFF;
+		}
+
+		private XrGraphicsBindingVulkanKHR vulkanContextInfo;
+		VulkanHelpers.Api vulkanApiVersion;
+		ulong vulkanOpenXRVersion;
+
+		/// <summary>
+		/// Sets the Vulkan API version to be used and verifies its compliance with the OpenXR runtime requirements.
+		/// </summary>
+		/// <remarks>
+		/// This method **must** be called before the OpenXR session is created.
+		/// This method checks the minimum and maximum Vulkan API versions supported by the OpenXR runtime
+		/// and logs warnings if the declared version is outside these bounds. It is essential to ensure that the Vulkan
+		/// version is compliant with the runtime's requirements to avoid potential compatibility issues.</remarks>
+		/// <param name="version">The Vulkan API version to declare for use. Obtain it from the KSADeviceContext initialization</param>
+		public void DeclareUsedVulkanVersion(VulkanHelpers.Api version)
+		{
+			vulkanApiVersion = version;
+
+			Logger.message($"Vulkan {VK_VERSION_MAJOR(version)}.{VK_VERSION_MINOR(version)}.{VK_VERSION_PATCH(version)}");
+			vulkanOpenXRVersion = XR_MAKE_VERSION(VK_VERSION_MAJOR(version), VK_VERSION_MINOR(version), VK_VERSION_PATCH(version));
+
+			//We should check the Vulkan version in use, strictly speaking.
+			var graphicsRequirements = new XrGraphicsRequirementsVulkanKHR();
+			graphicsRequirements.type = XrStructureType.XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN_KHR;
+			unsafe { CheckXRCall(xrGetVulkanGraphicsRequirementsKHR(instance, systemId, &graphicsRequirements)); }
+			Logger.message($"Runtime requires vulkan minimum version {XR_VERSION_MAJOR(graphicsRequirements.minApiVersionSupported)}.{XR_VERSION_MINOR(graphicsRequirements.minApiVersionSupported)}.{XR_VERSION_PATCH(graphicsRequirements.minApiVersionSupported)}");
+			Logger.message($"Runtime requires vulkan maximum version {XR_VERSION_MAJOR(graphicsRequirements.maxApiVersionSupported)}.{XR_VERSION_MINOR(graphicsRequirements.maxApiVersionSupported)}.{XR_VERSION_PATCH(graphicsRequirements.maxApiVersionSupported)}");
+
+			if (vulkanOpenXRVersion >= graphicsRequirements.minApiVersionSupported)
+				Logger.message("The requested version is compliant with the minimal version supported.");
+			else
+				Logger.error("The Vulkan version requested by the engine is inferior to the minimal version required by the OpenXR runtime.");
+
+			if (vulkanOpenXRVersion > graphicsRequirements.maxApiVersionSupported)
+			{
+				Logger.warning("The Vulkan version requested by BRUTAL is above the maximum requried vesrion by the OpenXR runtime.");
+				Logger.warning("Per OpenXR 1.0 specification §12.20 `XR_KHR_vulkan_enable`:");
+				Logger.warning(" maximum Vulkan Instance API version that the runtime has been tested on and is known to support.", "OpenXR SPEC");
+				Logger.warning(" Newer Vulkan Instance API versions might work if they are compatible.", "OpenXR SPEC");
+				Logger.warning($"We proceed assuming version {VK_VERSION_MAJOR(version)}.{VK_VERSION_MINOR(version)} is compatible with Vulkan {XR_VERSION_MAJOR(graphicsRequirements.maxApiVersionSupported)}.{XR_VERSION_MINOR(graphicsRequirements.maxApiVersionSupported)}");
+			}
+		}
+
+		public void SetVulkanBinding(XrGraphicsBindingVulkanKHR vulkanContext)
+		{
+			vulkanContextInfo = vulkanContext;
+		}
+
+		public void SetQueue(int index, int family)
+		{
+			vulkanContextInfo.queueIndex = (uint)index;
+			vulkanContextInfo.queueFamilyIndex = (uint)family;
+		}
+		#endregion
+
+		/// <summary>
+		/// Validates the result of an OpenXR API call and throws an exception if the result indicates failure and is not in
+		/// the list of allowed return codes.
+		/// </summary>
+		/// <remarks>Use this method to centralize error handling for OpenXR API calls. It allows certain non-success
+		/// result codes to be treated as valid outcomes, simplifying control flow when specific non-error codes are
+		/// expected.</remarks>
+		/// <param name="result">The result value returned by the OpenXR API call to validate.</param>
+		/// <param name="allowedReturnCodes">An optional list of additional OpenXR result codes that are considered acceptable and will not cause an exception
+		/// to be thrown. If null, only a result of XR_SUCCESS is considered successful.</param>
+		/// <exception cref="Exception">Thrown if the result is not XR_SUCCESS and is not included in the allowedReturnCodes list.</exception>
+		/// <returns>Forward the XrResult recived, useful to handle a non-failure error code that was allowed by this API call</returns>
+		private XrResult CheckXRCall(XrResult result, HashSet<XrResult>? allowedReturnCodes = null)
+		{
+			if (result == XrResult.XR_SUCCESS)
+				return result;
+
+			else if (allowedReturnCodes != null && allowedReturnCodes.Contains(result))
+				return result;
+
+			throw new Exception($"OpenXR API call failed {result}");
 		}
 
 		static unsafe void WriteStringToBuffer(string str, byte* buffer, int buffLen = 128)
@@ -64,12 +148,6 @@ namespace KSA_XR
 				buffer[i] = (byte)str[i];
 			}
 			buffer[len] = 0;
-		}
-
-		private void CheckXRCall(XrResult result)
-		{
-			if (result != XrResult.XR_SUCCESS)
-				throw new Exception($"OpenXR API call failed {result}");
 		}
 
 		private unsafe byte** BuildExtensionListPointer(List<string> extensions)
@@ -151,8 +229,8 @@ namespace KSA_XR
 			}
 		}
 
+		#region OpenXR Debug Infrastructure
 		bool useDebugMessenger = false;
-
 
 		[UnmanagedFunctionPointer(CallingConvention.StdCall)]
 		public unsafe delegate XrBool32 DebugCallbackType(XrDebugUtilsMessageSeverityFlagsEXT severity, XrDebugUtilsMessageTypeFlagsEXT type, XrDebugUtilsMessengerCallbackDataEXT* data, void* userData);
@@ -160,7 +238,6 @@ namespace KSA_XR
 		private DebugCallbackType? DebugCallbackObj;
 		private GCHandle DebugMessengerHandle;
 		private IntPtr DebugMessengerPtr = IntPtr.Zero;
-
 
 		public static unsafe XrBool32 DebugCallback(XrDebugUtilsMessageSeverityFlagsEXT severity, XrDebugUtilsMessageTypeFlagsEXT type, XrDebugUtilsMessengerCallbackDataEXT* data, void* userData)
 		{
@@ -173,8 +250,9 @@ namespace KSA_XR
 				Logger.message(message, "OpenXR Validation");
 			return XR_FALSE;
 		}
-
+		
 		XrDebugUtilsMessengerEXT DebugUtilsMessenger = new XrDebugUtilsMessengerEXT();
+		#endregion
 
 		public OpenXR()
 		{
@@ -183,10 +261,7 @@ namespace KSA_XR
 				unsafe
 				{
 					identityPose.orientation.w = 1;
-
 					GetListOfAvailableExtensions();
-
-					//CheckRequiredExtensionIsAvailable(XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME);
 					CheckRequiredExtensionIsAvailable(XR_KHR_VULKAN_ENABLE_EXTENSION_NAME);
 
 #if DEBUG
@@ -201,24 +276,18 @@ namespace KSA_XR
 					WriteStringToBuffer("BRUTAL", instanceCreateInfo.applicationInfo.engineName);
 					WriteStringToBuffer("KittenSpaceAgency (KAS_XR mod)", instanceCreateInfo.applicationInfo.applicationName);
 
-					//Need to enable the KHR_vulkan_enable2 extension
-
 					var enabledExtensionsCS = new List<string>();
 					enabledExtensionsCS.Add(XR_KHR_VULKAN_ENABLE_EXTENSION_NAME);
-					//enabledExtensionsCS.Add(XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME);
 #if DEBUG
 					if (useDebugMessenger)
 						enabledExtensionsCS.Add(XR_EXT_DEBUG_UTILS_EXTENSION_NAME);
 #endif
-
 					instanceCreateInfo.enabledExtensionCount = (uint)enabledExtensionsCS.Count;
 					instanceCreateInfo.enabledExtensionNames = BuildExtensionListPointer(enabledExtensionsCS);
-
 
 					Logger.message("Attempt to create XrInstance with extensions:");
 					foreach (string extensionName in enabledExtensionsCS)
 						Logger.message($"\t- {extensionName}");
-
 
 					XrInstance instance;
 					var res = xrCreateInstance(&instanceCreateInfo, &instance);
@@ -276,13 +345,6 @@ namespace KSA_XR
 
 					Logger.message($"System Name: {PtrToString(systemProperties.systemName)}");
 					SystemName = PtrToString(systemProperties.systemName);
-
-					//We should check the Vulkan version in use, strictly speaking.
-					var graphicsRequirements = new XrGraphicsRequirementsVulkanKHR();
-					graphicsRequirements.type = XrStructureType.XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN_KHR;
-					CheckXRCall(xrGetVulkanGraphicsRequirementsKHR(instance, systemId, &graphicsRequirements));
-					Logger.message($"Runtime requires vulkan minimum version {XR_VERSION_MAJOR(graphicsRequirements.minApiVersionSupported)}.{XR_VERSION_MINOR(graphicsRequirements.minApiVersionSupported)}.{XR_VERSION_PATCH(graphicsRequirements.minApiVersionSupported)}");
-					Logger.message($"Runtime requires vulkan maximum version {XR_VERSION_MAJOR(graphicsRequirements.maxApiVersionSupported)}.{XR_VERSION_MINOR(graphicsRequirements.maxApiVersionSupported)}.{XR_VERSION_PATCH(graphicsRequirements.maxApiVersionSupported)}");
 
 					uint viewConfigCount = 0;
 					xrEnumerateViewConfigurations(instance, systemId, viewConfigCount, &viewConfigCount, null);
@@ -378,7 +440,6 @@ namespace KSA_XR
 					CheckXRCall(xrBeginSession(session, &sessionBeginInfo));
 					Logger.message("Session has begun");
 					hasSessionBegan = true;
-
 
 					//Define a global reference space that is aligned wiht the tracking system STAGE
 					XrReferenceSpaceCreateInfo referenceSpaceCreateInfo = new XrReferenceSpaceCreateInfo();

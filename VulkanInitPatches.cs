@@ -7,6 +7,7 @@ using Evergine.Bindings.OpenXR;
 
 namespace KSA_XR
 {
+
 	[HarmonyPatch(typeof(VulkanHelpers))]
 	[HarmonyPatch(nameof(VulkanHelpers.AddSurfaceExtensions))]
 	public static class VulkanSurfaceExtensionPatch
@@ -24,6 +25,7 @@ namespace KSA_XR
 	{
 		static void Postfix(HashSet<string> __0)
 		{
+			Logger.message("Adding other Vulkan Device Extensions after VulkanHelpers.AddSurfaceExtensions");
 			VulkanExtensionPatchHelpers.InjectOpenXrDeviceExtensions(__0, "VulkanHelpers.AddSwapchainExtensions");
 		}
 	}
@@ -36,6 +38,10 @@ namespace KSA_XR
 		static void Prefix(Brutal.VulkanApi.Abstractions.VulkanHelpers.Api __0)
 		{
 			Logger.message("Prefix patch of Core.KSADeviceContextEx");
+
+			var xr = ModLoader.openxr;
+			if (xr != null)
+				xr.DeclareUsedVulkanVersion(__0);
 		}
 
 		static void Postfix(Core.KSADeviceContextEx __instance)

@@ -9,6 +9,7 @@
 		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<KSADir>C:\Program Files\Kitten Space Agency\</KSADir>
+		<Platforms>x64</Platforms>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -20,17 +21,11 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<_KsaAssemblies
-		  Include="$(KSADir)Brutal*.dll" Path="%(FullPath)" />
-		<_KsaAssemblies
-		  Include="$(KSADir)KSA.dll" Path="%(FullPath)" />
-		<_KsaAssemblies
-		  Include="$(KSADir)Planet*.dll" Path="%(FullPath)" />
-		<_KsaAssemblies
-		  Include="$(KSADir)Tomlet.dll" Path="%(FullPath)" />
-		<Reference
-		  Include="@(_KsaAssemblies->'%(FileName)')"
-		  HintPath="%(Path)" Private="False" />
+		<_KsaAssemblies Include="$(KSADir)Brutal*.dll" Path="%(FullPath)" />
+		<_KsaAssemblies Include="$(KSADir)KSA.dll" Path="%(FullPath)" />
+		<_KsaAssemblies Include="$(KSADir)Planet*.dll" Path="%(FullPath)" />
+		<_KsaAssemblies Include="$(KSADir)Tomlet.dll" Path="%(FullPath)" />
+		<Reference Include="@(_KsaAssemblies->'%(FileName)')" HintPath="%(Path)" Private="False" />
 	</ItemGroup>
 
 

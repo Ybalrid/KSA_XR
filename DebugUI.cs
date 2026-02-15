@@ -9,6 +9,11 @@ namespace KSA_XR
 {
 	public class DebugUI
 	{
+		public DebugUI()
+		{
+			Logger.message("Initialize Debug UI");
+		}
+
 		bool XrSessionStarted = false;
 		public void StatusWindow()
 		{
@@ -34,7 +39,6 @@ namespace KSA_XR
 					yellowColor.R = 1;
 					yellowColor.G = 1;
 					ImGui.TextColored(yellowColor, $"XrSession {xr.Session.Handle}");
-
 				}
 			}
 			else
