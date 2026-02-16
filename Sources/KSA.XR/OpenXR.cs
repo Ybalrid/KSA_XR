@@ -268,8 +268,8 @@ namespace KSA
 			Brutal.VulkanApi.Device vkDevice;
 			Brutal.VulkanApi.Queue vkQueue;
 
-			KSA.Viewport?[] eyeViewports = new KSA.Viewport[2];
-
+			KSA.Viewport?[] eyeViewport = new KSA.Viewport[2];
+			KSA.Camera?[] eyeCameras = new KSA.Camera[2];
 
 			#region OpenXR Debug Infrastructure
 			bool useDebugMessenger = false;
@@ -601,6 +601,7 @@ namespace KSA
 
 						var formatSelected = 0; //TODO choose a format from the list for real
 
+
 						for (int eye = 0; eye < 2; ++eye)
 						{
 							var swapchainCreateInfo = new XrSwapchainCreateInfo();
@@ -621,9 +622,6 @@ namespace KSA
 							CheckXRCall(xrCreateSwapchain(session, &swapchainCreateInfo, &swapchain));
 							eyeSwapchains[eye] = swapchain;
 
-							//Doing this crashes the game!
-							//eyeViewports[eye] =  XrViewports.AddViewport(new int2((int)eyeRenderTargetSizes[eye].X, (int)eyeRenderTargetSizes[eye].Y), true, false);
-
 							uint imageCount = 0;
 							CheckXRCall(xrEnumerateSwapchainImages(swapchain, imageCount, &imageCount, null));
 #pragma warning disable CA2014 // Do not use stackalloc in loops
@@ -637,8 +635,14 @@ namespace KSA
 								eyeSwapchainImages[eye].Add(swapchainImageVulkan[img]);
 
 							Logger.message($"Allocated swapchain for eye {(EyeIndex)eye}: Format {compatibleSwapchainVulkanFormat[formatSelected]} Size {swapchainCreateInfo.width}x{swapchainCreateInfo.height}");
+
+							eyeCameras[eye] = new Camera(new int2((int)swapchainCreateInfo.width, (int)swapchainCreateInfo.height));
+
 						}
 					}
+
+					var eyeRenderTargetSize = eyeRenderTargetSizes[0];
+
 					return true;
 				}
 
@@ -756,9 +760,26 @@ namespace KSA
 									 * As a POC the following obtains backbuffer of main game viewport, and just blit it as-is onto the OpenXR swapchain.
 									 */
 
-									var target = Program.MainViewport.OffscreenTarget;
+									//var viewport = Program.MainViewport;
+									var pinstance = Program.Instance;
+									Viewport viewport = Program.Viewports[eye+1];
+									viewport.Visible = true;
+									viewport.BaseCamera = Program.MainViewport.BaseCamera;
+									viewport.SetCameraMode(CameraMode.Orbit);
+									
+									int2 size = new int2((int)eyeRenderTargetSizes[eye].X, (int)eyeRenderTargetSizes[eye].Y);
+									/*if (viewport.Size != size)
+										viewport.Resize(size);
+									*/
+
+									var target = viewport.OffscreenTarget;
 									var sourceImage = target.ColorImage.Image;
-									var srcSize = Program.MainViewport.Size;
+									var srcSize = viewport.Size;
+
+									var originalCamera = viewport.BaseCamera;
+									if (eyeCameras[eye] != null)
+									{
+									}
 
 									//TODO All of those vulkan structures can probably be allocated just once, to put them outisde this hot path
 									var sourceToTransferBarrier = new VkImageMemoryBarrier();
@@ -900,13 +921,13 @@ namespace KSA
 									//Do the work
 									var submitInfo = new VkSubmitInfo();
 									var bufferArray = stackalloc VkCommandBuffer[1];
-									bufferArray[0] = (VkCommandBuffer) copyCommandBuffer.Handle;
+									bufferArray[0] = (VkCommandBuffer)copyCommandBuffer.Handle;
 									submitInfo.CommandBuffers = bufferArray;
 									submitInfo.CommandBufferCount = 1;
 									Span<VkSubmitInfo> submitInfos = stackalloc VkSubmitInfo[1];
 									submitInfos[0] = submitInfo;
 									vkQueue.Submit(submitInfos, copyFence);
-									
+
 									//Make sure it's done
 									vkDevice.WaitForFences(fencesToReset, true, (nint)(-1));
 								}
