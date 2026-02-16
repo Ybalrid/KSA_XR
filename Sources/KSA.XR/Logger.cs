@@ -4,6 +4,7 @@
 	{
 		internal class Logger
 		{
+			private static Mutex logMut = new Mutex();
 			private static void writeTag(string? extra = null)
 			{
 				var bgRestore = Console.BackgroundColor;
@@ -21,6 +22,7 @@
 
 			public static void warning(string warning, string? tag = null)
 			{
+				logMut.WaitOne();
 				writeTag(tag);
 				var bgRestore = Console.BackgroundColor;
 				var fgRestore = Console.ForegroundColor;
@@ -32,10 +34,12 @@
 
 				Console.BackgroundColor = bgRestore;
 				Console.ForegroundColor = fgRestore;
+				logMut.ReleaseMutex();
 			}
 
 			public static void error(string error, string? tag = null)
 			{
+				logMut.WaitOne();
 				writeTag(tag);
 				var bgRestore = Console.BackgroundColor;
 				var fgRestore = Console.ForegroundColor;
@@ -47,13 +51,16 @@
 
 				Console.BackgroundColor = bgRestore;
 				Console.ForegroundColor = fgRestore;
+				logMut.ReleaseMutex();
 			}
 
 
 			public static void message(string message, string? tag = null)
 			{
+				logMut.WaitOne();
 				writeTag(tag);
 				Console.WriteLine(message);
+				logMut.ReleaseMutex();
 			}
 		}
 	}

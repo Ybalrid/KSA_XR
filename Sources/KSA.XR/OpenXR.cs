@@ -313,6 +313,9 @@ namespace KSA
 			XrDebugUtilsMessengerEXT DebugUtilsMessenger = new XrDebugUtilsMessengerEXT();
 			#endregion
 
+			Thread openXREventThread;
+			bool openXREventThreadRunning = true; 
+
 			/// <summary>
 			/// Initializes a new instance of the OpenXR class and prepares the necessary components for OpenXR functionality.
 			/// </summary>
@@ -323,17 +326,55 @@ namespace KSA
 			{
 				try
 				{
-					unsafe
-					{
-						CreateInstance();
-						GetHMDSystem();
-						EnumerateViews();
-					}
+					CreateInstance();
+					GetHMDSystem();
+					EnumerateViews();
+					StartOpenXREventThread();
 				}
 				catch (Exception e)
 				{
 					Logger.error("The first stage initialization of OpenXR failed.");
 					Logger.error(e.ToString());
+				}
+			}
+
+			private void StartOpenXREventThread()
+			{
+				openXREventThread = new Thread(HandleXREvents);
+				openXREventThreadRunning = true;
+				openXREventThread.Start();
+			}
+
+			private unsafe void HandleXREvents()
+			{
+				HashSet<XrResult> pollEventAllowedResults = new HashSet<XrResult>() { XrResult.XR_EVENT_UNAVAILABLE };
+				while (openXREventThreadRunning)
+				{
+					try
+					{
+						var eventBuffer = new XrEventDataBuffer();
+						eventBuffer.type = XrStructureType.XR_TYPE_EVENT_DATA_BUFFER;
+						if (instance.Handle != 0 &&
+							XrResult.XR_SUCCESS == CheckXRCall(xrPollEvent(instance, &eventBuffer), pollEventAllowedResults))
+						{
+							switch (eventBuffer.type)
+							{
+								case XrStructureType.XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED:
+									var sessionStateChanged = *(XrEventDataSessionStateChanged*)&eventBuffer;
+									Logger.message($"XR Session {sessionStateChanged.session.Handle} changed state to {sessionStateChanged.state}");
+									break;
+								default:
+									Logger.warning($"XR Event of type {eventBuffer.type} currently unhandled");
+									break;
+							}
+						}
+					}
+					catch(Exception e)
+					{
+						Logger.error(e.ToString());
+					}
+
+					Thread.Sleep(1);
 				}
 			}
 
@@ -654,6 +695,8 @@ namespace KSA
 			}
 
 
+
+
 			static HashSet<XrResult> waitSwapchainFailsafe = new HashSet<XrResult>
 			{
 				XrResult.XR_TIMEOUT_EXPIRED
@@ -663,6 +706,7 @@ namespace KSA
 			{
 				try
 				{
+
 					unsafe
 					{
 						if (hasSessionBegan)
@@ -760,14 +804,14 @@ namespace KSA
 									 * As a POC the following obtains backbuffer of main game viewport, and just blit it as-is onto the OpenXR swapchain.
 									 */
 
-									//var viewport = Program.MainViewport;
 									var pinstance = Program.Instance;
-									Viewport viewport = Program.Viewports[eye+1];
-									viewport.Visible = true;
-									viewport.BaseCamera = Program.MainViewport.BaseCamera;
-									viewport.SetCameraMode(CameraMode.Orbit);
+									//Viewport viewport = Program.Viewports[eye+1];
+									var viewport = Program.MainViewport;
+									//viewport.Visible = true;
+									//viewport.BaseCamera = Program.MainViewport.BaseCamera;
+									//viewport.SetCameraMode(CameraMode.Orbit);
 									
-									int2 size = new int2((int)eyeRenderTargetSizes[eye].X, (int)eyeRenderTargetSizes[eye].Y);
+									//int2 size = new int2((int)eyeRenderTargetSizes[eye].X, (int)eyeRenderTargetSizes[eye].Y);
 									/*if (viewport.Size != size)
 										viewport.Resize(size);
 									*/
