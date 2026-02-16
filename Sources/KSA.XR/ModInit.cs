@@ -42,6 +42,12 @@ namespace KSA
 			{
 				openxr?.OnFrame(dta);
 			}
+
+			[StarMapUnload]
+			public void Unload()
+			{
+				openxr.Quit();
+			}
 		}
 	}
 }

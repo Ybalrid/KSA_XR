@@ -1049,12 +1049,19 @@ namespace KSA
 					if (eyeSwapchains[i].Handle != 0)
 						xrDestroySwapchain(eyeSwapchains[i]);
 					eyeSwapchains[i] = new XrSwapchain();
-					eyeSwapchainImages[i].Clear();
+					eyeSwapchainImages[i]?.Clear();
 				}
 
 				xrDestroySession(session);
 				session = new XrSession();
 				hasSessionBegan = false;
+			}
+
+			public void Quit()
+			{
+				openXREventThreadRunning = false;
+				Thread.Sleep(10);
+				DestroySession();
 			}
 
 			private bool CheckOptionalExtensionIsAvailable(string extName)
