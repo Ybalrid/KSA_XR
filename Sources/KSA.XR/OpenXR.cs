@@ -43,13 +43,44 @@ namespace KSA
 				return (uint)((ulong)(version) & 0xffffffff);
 			}
 
-			static uint PackVersion(int major, int minor, int patch)
+			/// <summary>
+			/// Packs the Kitten Space Agency version into a single unsigned integer value.
+			///
+			/// This format is required if we wish to push a version of the game towards
+			/// the OpenXR runtime via the XrApplicationInfo structure.
+			///
+			/// KSA versionning scheme is a 4 number structure
+			/// [Year].[Month].(Local Build Increment).[Git Revision Increment]
+			///
+			/// The game's version is effectively the [Git Revision Increment]. However
+			/// it is nice to also have the time of release. The "Local Build Increment"
+			/// seems to be effectively random as it depend on which RW build machine the
+			/// build was from.
+			///
+			/// This function pack these numbers into 32 bit in the folling layout (MSB to LSB)
+			///
+			/// YYYYYYYYMMMMRRRRRRRRRRRRRRRRRRRR
+			///
+			/// The Year is only encoed on 8 bits, using 0 as year 2000.
+			/// The Month is encoed onto 4 bits.
+			/// The Revision number occupies the remaining 20 bits.
+			///
+			/// </summary>
+			/// <param name="year">The major version component. Must be in the range 2000 to 2255, inclusive.</param>
+			/// <param name="month">The minor version component. Must be in the range 0 to 15, inclusive.</param>
+			/// <param name="revisionIncrement">The patch version component. Must be in the range 0 to 1,048,575, inclusive.</param>
+			/// <returns>An unsigned integer that represents the packed version, combining the major, minor, and patch components.</returns>
+			/// <exception cref="ArgumentOutOfRangeException">Thrown when the value of <paramref name="year"/> is less than 2000 or greater than 2255, <paramref
+			/// name="month"/> is less than 0 or greater than 15, or <paramref name="revisionIncrement"/> is less than 0 or greater than
+			/// 1,048,575.</exception>
+			static uint PackVersion(int year, int month, int revisionIncrement)
 			{
-				if (major > 0xFFFF) throw new ArgumentOutOfRangeException(nameof(major));
-				if (minor > 0xF) throw new ArgumentOutOfRangeException(nameof(minor)); // 0..15
-				if (patch > 0xFFF) throw new ArgumentOutOfRangeException(nameof(patch)); // 0..4095
+				year -= 2000;
+				ArgumentOutOfRangeException.ThrowIfGreaterThan(year, 0xFF); //2000 to 2255
+				ArgumentOutOfRangeException.ThrowIfGreaterThan(month, 0xF); // 0..15
+				ArgumentOutOfRangeException.ThrowIfGreaterThan(revisionIncrement, 0xFFFFF); // 0..1048575
 
-				return (uint)((uint)major << 16) | ((uint)minor << 12) | (uint)patch;
+				return ((uint)year << 24) | ((uint)month << 20) | (uint)revisionIncrement;
 			}
 
 
@@ -264,9 +295,9 @@ namespace KSA
 			VkCommandPool copyCommandPool;
 			CommandBuffer copyCommandBuffer;
 			VkFence copyFence;
-			Brutal.VulkanApi.Instance vkInstance;
-			Brutal.VulkanApi.Device vkDevice;
-			Brutal.VulkanApi.Queue vkQueue;
+			Brutal.VulkanApi.Instance? vkInstance;
+			Brutal.VulkanApi.Device? vkDevice;
+			Brutal.VulkanApi.Queue? vkQueue;
 
 			KSA.Viewport?[] eyeViewport = new KSA.Viewport[2];
 			KSA.Camera?[] eyeCameras = new KSA.Camera[2];
@@ -313,7 +344,7 @@ namespace KSA
 			XrDebugUtilsMessengerEXT DebugUtilsMessenger = new XrDebugUtilsMessengerEXT();
 			#endregion
 
-			Thread openXREventThread;
+			Thread? openXREventThread;
 			bool openXREventThreadRunning = true; 
 
 			/// <summary>
@@ -469,9 +500,9 @@ namespace KSA
 
 				instanceCreateInfo.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0); //OPENXR_API_VERSION_1_0
 				if (KSAversion != null)
-					instanceCreateInfo.applicationInfo.applicationVersion = PackVersion(KSAversion.Major, KSAversion.Minor, KSAversion.Build);
+					instanceCreateInfo.applicationInfo.applicationVersion = PackVersion(KSAversion.Major, KSAversion.Minor, KSAversion.Revision);
 				if (BrutalVulkanVersion != null)
-					instanceCreateInfo.applicationInfo.engineVersion = PackVersion(BrutalVulkanVersion.Major, BrutalVulkanVersion.Minor, BrutalVulkanVersion.Build);
+					instanceCreateInfo.applicationInfo.engineVersion = PackVersion(BrutalVulkanVersion.Major, BrutalVulkanVersion.Minor, BrutalVulkanVersion.Revision);
 				WriteStringToBuffer("BRUTAL", instanceCreateInfo.applicationInfo.engineName);
 				WriteStringToBuffer("KittenSpaceAgency (KAS_XR mod)", instanceCreateInfo.applicationInfo.applicationName);
 
@@ -563,6 +594,13 @@ namespace KSA
 			{
 				try
 				{
+					if (vkInstance == null)
+						throw new Exception("Vulkan Instance not set");
+					if (vkDevice == null)
+						throw new Exception("Vulkan Device not set");
+					if (vkQueue == null)
+						throw new Exception("Vulkan Queue not set");
+
 					var sessionCreateInfo = new XrSessionCreateInfo();
 					sessionCreateInfo.type = XrStructureType.XR_TYPE_SESSION_CREATE_INFO;
 					sessionCreateInfo.systemId = systemId;
@@ -596,7 +634,7 @@ namespace KSA
 						var commandPoolCreateInfo = new VkCommandPoolCreateInfo();
 						commandPoolCreateInfo.QueueFamilyIndex = (int)graphicsBinding.queueFamilyIndex;
 						commandPoolCreateInfo.Flags = VkCommandPoolCreateFlags.ResetCommandBufferBit;
-						copyCommandPool = VkDeviceExtensions.CreateCommandPool(vkDevice, ref commandPoolCreateInfo, null);
+						copyCommandPool = VkDeviceExtensions.CreateCommandPool(vkDevice, in commandPoolCreateInfo, null);
 
 						var commandBufferAllocateInfo = new VkCommandBufferAllocateInfo();
 						commandBufferAllocateInfo.CommandPool = copyCommandPool;
@@ -607,7 +645,7 @@ namespace KSA
 						copyCommandBuffer = copyCommandbuffers[0];
 
 						var fenceCreateInfo = new VkFenceCreateInfo();
-						copyFence = VkDeviceExtensions.CreateFence(vkDevice, ref fenceCreateInfo, null);
+						copyFence = VkDeviceExtensions.CreateFence(vkDevice, in fenceCreateInfo, null);
 
 						var sessionBeginInfo = new XrSessionBeginInfo();
 						sessionBeginInfo.type = XrStructureType.XR_TYPE_SESSION_BEGIN_INFO;
@@ -706,6 +744,12 @@ namespace KSA
 			{
 				try
 				{
+					if (vkInstance == null)
+						throw new Exception("Vulkan Instance not set");
+					if (vkDevice == null)
+						throw new Exception("Vulkan Device not set");
+					if (vkQueue == null)
+						throw new Exception("Vulkan Queue not set");
 
 					unsafe
 					{
@@ -760,6 +804,7 @@ namespace KSA
 							//Roll through each eye view, and progress through their swapchain images in the order the runtime requests
 							for (int eye = 0; eye < 2; ++eye)
 							{
+#pragma warning disable CA2014 // Do not use stackalloc in loops
 								uint index = 0xFFFFFFFF;
 								//obtain swapchain image for current frame
 								var swapchainImageAcquireInfo = new XrSwapchainImageAcquireInfo();
@@ -817,6 +862,9 @@ namespace KSA
 									*/
 
 									var target = viewport.OffscreenTarget;
+									if (target == null)
+										throw new Exception("Cannot acquire offscreen target for copy source"); 
+
 									var sourceImage = target.ColorImage.Image;
 									var srcSize = viewport.Size;
 
@@ -1011,6 +1059,7 @@ namespace KSA
 							frameEndInfo.environmentBlendMode = blendModeToUse;
 							frameEndInfo.displayTime = frameState.predictedDisplayTime;
 							CheckXRCall(xrEndFrame(session, &frameEndInfo));
+#pragma warning restore CA2014 // Do not use stackalloc in loops
 						}
 					}
 				}
@@ -1027,17 +1076,17 @@ namespace KSA
 				{
 					Span<CommandBuffer> commandBuffersToFree = stackalloc CommandBuffer[1];
 					commandBuffersToFree[0] = copyCommandBuffer;
-					vkDevice.FreeCommandBuffers(copyCommandPool, commandBuffersToFree);
+					vkDevice?.FreeCommandBuffers(copyCommandPool, commandBuffersToFree);
 					copyCommandBuffer = new CommandBuffer();
 				}
 				if (copyCommandPool.VkHandle != 0)
 				{
-					vkDevice.DestroyCommandPool(copyCommandPool, null);
+					vkDevice?.DestroyCommandPool(copyCommandPool, null);
 					copyCommandPool = new VkCommandPool();
 				}
 				if (copyFence.VkHandle != 0)
 				{
-					vkDevice.DestroyFence(copyFence, null);
+					vkDevice?.DestroyFence(copyFence, null);
 					copyFence = new VkFence();
 				}
 
