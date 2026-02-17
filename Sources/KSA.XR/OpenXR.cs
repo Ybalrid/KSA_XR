@@ -279,7 +279,7 @@ namespace KSA.XR
 		XrViewConfigurationView[] eyeViews = new XrViewConfigurationView[2];
 		public XrViewConfigurationView[] EyeViewConfigurations => eyeViews;
 
-		XrEnvironmentBlendMode blendModeToUse;
+		XrEnvironmentBlendMode? blendModeToUse = null;
 
 		List<VkFormat> compatibleSwapchainVulkanFormat = new List<VkFormat>();
 
@@ -411,30 +411,29 @@ namespace KSA.XR
 		private unsafe void InstallDebugMessenger()
 		{
 #if DEBUG
-			if (useDebugMessenger)
-			{
-				var DebugUtilMessengerCreateInfo = new XrDebugUtilsMessengerCreateInfoEXT();
-				DebugUtilMessengerCreateInfo.type = XrStructureType.XR_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+			if (!useDebugMessenger)
+				return;
+			var DebugUtilMessengerCreateInfo = new XrDebugUtilsMessengerCreateInfoEXT();
+			DebugUtilMessengerCreateInfo.type = XrStructureType.XR_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
 
-				DebugUtilMessengerCreateInfo.messageSeverities = (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT
-					| (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT //may want to comment this one
-					| (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
-					| (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-				DebugUtilMessengerCreateInfo.messageTypes = (ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
-					| (ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
-					| (ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_CONFORMANCE_BIT_EXT
-					| (ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_CONFORMANCE_BIT_EXT;
+			DebugUtilMessengerCreateInfo.messageSeverities = (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT
+				| (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT //may want to comment this one
+				| (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
+				| (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+			DebugUtilMessengerCreateInfo.messageTypes = (ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
+				| (ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
+				| (ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_CONFORMANCE_BIT_EXT
+				| (ulong)XrDebugUtilsMessageTypeFlagsEXT.XR_DEBUG_UTILS_MESSAGE_TYPE_CONFORMANCE_BIT_EXT;
 
-				DebugCallbackObj = DebugCallback;
-				DebugMessengerPtr = Marshal.GetFunctionPointerForDelegate(DebugCallbackObj);
-				DebugMessengerHandle = GCHandle.Alloc(DebugCallbackObj);
+			DebugCallbackObj = DebugCallback;
+			DebugMessengerPtr = Marshal.GetFunctionPointerForDelegate(DebugCallbackObj);
+			DebugMessengerHandle = GCHandle.Alloc(DebugCallbackObj);
 
-				DebugUtilMessengerCreateInfo.userCallback = DebugMessengerPtr;
+			DebugUtilMessengerCreateInfo.userCallback = DebugMessengerPtr;
 
-				var DebugUtilsMessenger = new XrDebugUtilsMessengerEXT();
-				var debugInstallResult = xrCreateDebugUtilsMessengerEXT(instance, &DebugUtilMessengerCreateInfo, &DebugUtilsMessenger);
-				this.DebugUtilsMessenger = DebugUtilsMessenger;
-			}
+			var DebugUtilsMessenger = new XrDebugUtilsMessengerEXT();
+			var debugInstallResult = xrCreateDebugUtilsMessengerEXT(instance, &DebugUtilMessengerCreateInfo, &DebugUtilsMessenger);
+			this.DebugUtilsMessenger = DebugUtilsMessenger;
 #endif
 		}
 
@@ -471,13 +470,21 @@ namespace KSA.XR
 				Logger.message($"\t\t- Recommnaded Sample count {viewConfigViews[i].recommendedSwapchainSampleCount}");
 			}
 
+			//Enumerate environement blend modes, and make sure OPAQUE is supported, as we are a VR appication that take over the view of the user
 			uint blendModeCount = 0;
 			xrEnumerateEnvironmentBlendModes(instance, systemId, viewConfigurationType, blendModeCount, &blendModeCount, null);
 			var envBlendModes = stackalloc XrEnvironmentBlendMode[(int)blendModeCount];
 			xrEnumerateEnvironmentBlendModes(instance, systemId, viewConfigurationType, blendModeCount, &blendModeCount, envBlendModes);
-			blendModeToUse = envBlendModes[0];
+			Logger.message("Supported Environement Blend Modes:");
+			for (int i = 0; i < blendModeCount; ++i)
+			{
+				Logger.message($"\t- {envBlendModes[i]}");
+				if (envBlendModes[i] == XrEnvironmentBlendMode.XR_ENVIRONMENT_BLEND_MODE_OPAQUE)
+					blendModeToUse = envBlendModes[i];
+			}
 
-
+			if (blendModeToUse != null)
+				Logger.message("Runtime supports opaque blend mode, this is the blend mode we will use.");
 		}
 
 		/// <summary>
@@ -715,6 +722,8 @@ namespace KSA.XR
 						for (int img = 0; img < imageCount; ++img)
 							eyeSwapchainImages[eye].Add(swapchainImageVulkan[img]);
 
+						//TODO should be able to create image view and framebuffers from those images 
+
 						Logger.message($"Allocated swapchain for eye {(EyeIndex)eye}: Format {compatibleSwapchainVulkanFormat[formatSelected]} Size {swapchainCreateInfo.width}x{swapchainCreateInfo.height}");
 
 						eyeCameras[eye] = new Camera(new int2((int)swapchainCreateInfo.width, (int)swapchainCreateInfo.height));
@@ -875,7 +884,7 @@ namespace KSA.XR
 			frameEndInfo.type = XrStructureType.XR_TYPE_FRAME_END_INFO;
 			frameEndInfo.layerCount = 1;
 			frameEndInfo.layers = (XrCompositionLayerBaseHeader**)layers;
-			frameEndInfo.environmentBlendMode = blendModeToUse;
+			frameEndInfo.environmentBlendMode = XrEnvironmentBlendMode.XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
 			frameEndInfo.displayTime = displayTime;
 			CheckXRCall(xrEndFrame(session, &frameEndInfo));
 		}
@@ -1214,6 +1223,5 @@ namespace KSA.XR
 
 			throw new Exception($"OpenXR API call failed {result}");
 		}
-
 	}
 }
