@@ -17,13 +17,11 @@ namespace KSA.XR
 			ImGui.Begin("KSA_XR");
 
 			var xr = ModInit.openxr;
-			if (xr != null)
+			if (xr != null && xr.Instance.Handle != 0)
 			{
 				ImGui.Text($"OpenXR Runtime {xr.RuntimeName}");
 				ImGui.Text($"OpenXR System {xr.SystemName}");
 				ImGui.Text($"System's viewconfig type {xr.ViewConfigurationType}");
-
-
 
 				if (!XrSessionStarted)
 				{
@@ -70,7 +68,7 @@ namespace KSA.XR
 			}
 			else
 			{
-				ImGui.Text("Initialization of OpenXR has failed.");
+				ImGui.Text("OpenXR not initialized.");
 			}
 
 			ImGui.End();
