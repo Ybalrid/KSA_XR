@@ -274,7 +274,7 @@ namespace KSA
 			public XrSession Session => session;
 
 			private bool hasSessionBegan = false;
-			XrSpace applicationLocalSpaced;
+			XrSpace applicationLocalSpace;
 			ulong systemId = 0;
 			XrViewConfigurationType viewConfigurationType;
 			public XrViewConfigurationType ViewConfigurationType => viewConfigurationType;
@@ -662,7 +662,7 @@ namespace KSA
 						referenceSpaceCreateInfo.poseInReferenceSpace.orientation.w = 1;//With the rest of the stuct defaulted to zero, this is effectively a identity pose
 						XrSpace applicationLocalSpace = new XrSpace();
 						CheckXRCall(xrCreateReferenceSpace(session, &referenceSpaceCreateInfo, &applicationLocalSpace));
-						this.applicationLocalSpaced = applicationLocalSpace;
+						this.applicationLocalSpace = applicationLocalSpace;
 
 						compatibleSwapchainVulkanFormat.Clear();
 						uint formatCount = 0;
@@ -776,7 +776,7 @@ namespace KSA
 							var viewLocateInfo = new XrViewLocateInfo();
 							viewLocateInfo.type = XrStructureType.XR_TYPE_VIEW_LOCATE_INFO;
 							viewLocateInfo.displayTime = frameState.predictedDisplayTime;
-							viewLocateInfo.space = applicationLocalSpaced;
+							viewLocateInfo.space = applicationLocalSpace;
 							viewLocateInfo.viewConfigurationType = XrViewConfigurationType.XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
 							CheckXRCall(xrLocateViews(session, &viewLocateInfo, &viewState, 2, &viewCount, views));
 
@@ -818,7 +818,8 @@ namespace KSA
 								if (waitResult == XrResult.XR_SUCCESS)
 								{
 									var eyeSwpachainImage = eyeSwapchainImages[eye][(int)index];
-									VkImage vulkanImageHandle = new VkImage(eyeSwpachainImage.image);
+									var eyeSwapchainVkImage = new VkImage(eyeSwpachainImage.image);
+									var eyeSwapchainImageSize = new int2((int)eyeRenderTargetSizes[eye].X, (int)eyeRenderTargetSizes[eye].Y);
 
 									/*
 									 * Now that all the boiler plate is put in place, it is time to start worrying about pushing pixels...!
@@ -849,179 +850,7 @@ namespace KSA
 									 * As a POC the following obtains backbuffer of main game viewport, and just blit it as-is onto the OpenXR swapchain.
 									 */
 
-									var pinstance = Program.Instance;
-									//Viewport viewport = Program.Viewports[eye+1];
-									var viewport = Program.MainViewport;
-									//viewport.Visible = true;
-									//viewport.BaseCamera = Program.MainViewport.BaseCamera;
-									//viewport.SetCameraMode(CameraMode.Orbit);
-									
-									//int2 size = new int2((int)eyeRenderTargetSizes[eye].X, (int)eyeRenderTargetSizes[eye].Y);
-									/*if (viewport.Size != size)
-										viewport.Resize(size);
-									*/
-
-									var target = viewport.OffscreenTarget;
-									if (target == null)
-										throw new Exception("Cannot acquire offscreen target for copy source"); 
-
-									var sourceImage = target.ColorImage.Image;
-									var srcSize = viewport.Size;
-
-									var originalCamera = viewport.BaseCamera;
-									if (eyeCameras[eye] != null)
-									{
-									}
-
-									//TODO All of those vulkan structures can probably be allocated just once, to put them outisde this hot path
-									var sourceToTransferBarrier = new VkImageMemoryBarrier();
-									sourceToTransferBarrier.SrcAccessMask = VkAccessFlags.ColorAttachmentWriteBit;
-									sourceToTransferBarrier.DstAccessMask = VkAccessFlags.TransferReadBit;
-									sourceToTransferBarrier.OldLayout = VkImageLayout.ColorAttachmentOptimal;
-									sourceToTransferBarrier.NewLayout = VkImageLayout.TransferSrcOptimal;
-									sourceToTransferBarrier.SrcQueueFamilyIndex = -1;
-									sourceToTransferBarrier.DstQueueFamilyIndex = -1;
-									sourceToTransferBarrier.Image = sourceImage;
-									sourceToTransferBarrier.SubresourceRange.AspectMask = VkImageAspectFlags.ColorBit;
-									sourceToTransferBarrier.SubresourceRange.BaseMipLevel = 0;
-									sourceToTransferBarrier.SubresourceRange.LevelCount = 1;
-									sourceToTransferBarrier.SubresourceRange.BaseArrayLayer = 0;
-									sourceToTransferBarrier.SubresourceRange.LayerCount = 1;
-
-									var destToTransferBarrier = new VkImageMemoryBarrier();
-									destToTransferBarrier.SrcAccessMask = VkAccessFlags.None;
-									destToTransferBarrier.DstAccessMask = VkAccessFlags.TransferWriteBit;
-									destToTransferBarrier.OldLayout = VkImageLayout.ColorAttachmentOptimal;
-									destToTransferBarrier.NewLayout = VkImageLayout.TransferDstOptimal;
-									destToTransferBarrier.SrcQueueFamilyIndex = -1;
-									destToTransferBarrier.DstQueueFamilyIndex = -1;
-									destToTransferBarrier.Image = vulkanImageHandle;
-									destToTransferBarrier.SubresourceRange.AspectMask = VkImageAspectFlags.ColorBit;
-									destToTransferBarrier.SubresourceRange.BaseMipLevel = 0;
-									destToTransferBarrier.SubresourceRange.LevelCount = 1;
-									destToTransferBarrier.SubresourceRange.BaseArrayLayer = 0;
-									destToTransferBarrier.SubresourceRange.LayerCount = 1;
-
-									var sourceBackToColorBarrier = new VkImageMemoryBarrier();
-									sourceBackToColorBarrier.SrcAccessMask = VkAccessFlags.TransferReadBit;
-									sourceBackToColorBarrier.DstAccessMask = VkAccessFlags.ColorAttachmentWriteBit;
-									sourceBackToColorBarrier.OldLayout = VkImageLayout.TransferSrcOptimal;
-									sourceBackToColorBarrier.NewLayout = VkImageLayout.ColorAttachmentOptimal;
-									sourceBackToColorBarrier.SrcQueueFamilyIndex = -1;
-									sourceBackToColorBarrier.DstQueueFamilyIndex = -1;
-									sourceBackToColorBarrier.Image = sourceImage;
-									sourceBackToColorBarrier.SubresourceRange.AspectMask = VkImageAspectFlags.ColorBit;
-									sourceBackToColorBarrier.SubresourceRange.BaseMipLevel = 0;
-									sourceBackToColorBarrier.SubresourceRange.LevelCount = 1;
-									sourceBackToColorBarrier.SubresourceRange.BaseArrayLayer = 0;
-									sourceBackToColorBarrier.SubresourceRange.LayerCount = 1;
-
-									var destToColorBarrier = new VkImageMemoryBarrier();
-									destToColorBarrier.SrcAccessMask = VkAccessFlags.TransferWriteBit;
-									destToColorBarrier.DstAccessMask = VkAccessFlags.MemoryReadBit;
-									destToColorBarrier.OldLayout = VkImageLayout.TransferDstOptimal;
-									destToColorBarrier.NewLayout = VkImageLayout.ColorAttachmentOptimal;
-									destToColorBarrier.SrcQueueFamilyIndex = -1;
-									destToColorBarrier.DstQueueFamilyIndex = -1;
-									destToColorBarrier.Image = vulkanImageHandle;
-									destToColorBarrier.SubresourceRange.AspectMask = VkImageAspectFlags.ColorBit;
-									destToColorBarrier.SubresourceRange.BaseMipLevel = 0;
-									destToColorBarrier.SubresourceRange.LevelCount = 1;
-									destToColorBarrier.SubresourceRange.BaseArrayLayer = 0;
-									destToColorBarrier.SubresourceRange.LayerCount = 1;
-
-									var blitRegion = new VkImageBlit();
-									blitRegion.SrcSubresource.AspectMask = VkImageAspectFlags.ColorBit;
-									blitRegion.SrcSubresource.MipLevel = 0;
-									blitRegion.SrcSubresource.BaseArrayLayer = 0;
-									blitRegion.SrcSubresource.LayerCount = 1;
-									blitRegion.DstSubresource.AspectMask = VkImageAspectFlags.ColorBit;
-									blitRegion.DstSubresource.MipLevel = 0;
-									blitRegion.DstSubresource.BaseArrayLayer = 0;
-									blitRegion.DstSubresource.LayerCount = 1;
-									blitRegion.SrcOffsets[0] = new VkOffset3D();
-									blitRegion.SrcOffsets[1] = new VkOffset3D();
-									blitRegion.SrcOffsets[1].X = srcSize.X;
-									blitRegion.SrcOffsets[1].Y = srcSize.Y;
-									blitRegion.SrcOffsets[1].Z = 1;
-									blitRegion.DstOffsets[0] = new VkOffset3D();
-									blitRegion.DstOffsets[1] = new VkOffset3D();
-									blitRegion.DstOffsets[1].X = (int)eyeRenderTargetSizes[eye].X;
-									blitRegion.DstOffsets[1].Y = (int)eyeRenderTargetSizes[eye].Y;
-									blitRegion.DstOffsets[1].Z = 1;
-
-
-									Span<VkFence> fencesToReset = stackalloc VkFence[1];
-									fencesToReset[0] = copyFence;
-									vkDevice.ResetFences(fencesToReset);
-									copyCommandBuffer.Reset(VkCommandBufferResetFlags.None);
-
-									var beginInfo = new VkCommandBufferBeginInfo();
-									beginInfo.Flags = VkCommandBufferUsageFlags.OneTimeSubmitBit;
-									copyCommandBuffer.Begin(beginInfo);
-
-									//Transition the memory layout of both texture as source and destination for copy
-									Span<VkImageMemoryBarrier> imageBarriers = stackalloc VkImageMemoryBarrier[1];
-									imageBarriers[0] = sourceToTransferBarrier;
-									copyCommandBuffer.PipelineBarrier(
-										VkPipelineStageFlags.ColorAttachmentOutputBit,
-										VkPipelineStageFlags.TransferBit,
-										VkDependencyFlags.None,
-										default,
-										default,
-										imageBarriers);
-									imageBarriers[0] = destToTransferBarrier;
-									copyCommandBuffer.PipelineBarrier(
-										VkPipelineStageFlags.TopOfPipeBit,
-										VkPipelineStageFlags.TransferBit,
-										VkDependencyFlags.None,
-										default,
-										default,
-										imageBarriers);
-
-									//BLIT one onto the other
-									Span<VkImageBlit> blitRegions = stackalloc VkImageBlit[1];
-									blitRegions[0] = blitRegion;
-									copyCommandBuffer.BlitImage(
-										sourceImage,
-										VkImageLayout.TransferSrcOptimal,
-										vulkanImageHandle,
-										VkImageLayout.TransferDstOptimal,
-										blitRegions,
-										VkFilter.Linear);
-
-									//Restore source back to a color attachment
-									imageBarriers[0] = sourceBackToColorBarrier;
-									copyCommandBuffer.PipelineBarrier(
-										VkPipelineStageFlags.TransferBit,
-										VkPipelineStageFlags.ColorAttachmentOutputBit,
-										VkDependencyFlags.None,
-										default,
-										default,
-										imageBarriers);
-									imageBarriers[0] = destToColorBarrier;
-									copyCommandBuffer.PipelineBarrier(
-										VkPipelineStageFlags.TransferBit,
-										VkPipelineStageFlags.BottomOfPipeBit,
-										VkDependencyFlags.None,
-										default,
-										default,
-										imageBarriers);
-
-									copyCommandBuffer.End();
-
-									//Do the work
-									var submitInfo = new VkSubmitInfo();
-									var bufferArray = stackalloc VkCommandBuffer[1];
-									bufferArray[0] = (VkCommandBuffer)copyCommandBuffer.Handle;
-									submitInfo.CommandBuffers = bufferArray;
-									submitInfo.CommandBufferCount = 1;
-									Span<VkSubmitInfo> submitInfos = stackalloc VkSubmitInfo[1];
-									submitInfos[0] = submitInfo;
-									vkQueue.Submit(submitInfos, copyFence);
-
-									//Make sure it's done
-									vkDevice.WaitForFences(fencesToReset, true, (nint)(-1));
+									BlitMainViewIntoXrSwapchainImage(eyeSwapchainVkImage, eyeSwapchainImageSize);
 								}
 								else
 								{
@@ -1046,7 +875,7 @@ namespace KSA
 							//We render VR, perspective projections that goes right in front of your eyes
 							XrCompositionLayerProjection layerProjection = new XrCompositionLayerProjection();
 							layerProjection.type = XrStructureType.XR_TYPE_COMPOSITION_LAYER_PROJECTION;
-							layerProjection.space = applicationLocalSpaced;
+							layerProjection.space = applicationLocalSpace;
 							layerProjection.viewCount = 2;
 							layerProjection.views = projectionLayerViews;
 							var layers = stackalloc XrCompositionLayerProjection*[1];
@@ -1067,6 +896,169 @@ namespace KSA
 				{
 					Logger.error(e.ToString());
 				}
+			}
+
+			private unsafe void BlitMainViewIntoXrSwapchainImage(VkImage eyeSwapchainVkImage, int2 eyeSwapchainImageSize)
+			{
+				var pinstance = Program.Instance;
+				var viewport = Program.MainViewport;
+				var target = viewport.OffscreenTarget;
+				if (target == null)
+					throw new Exception("Cannot acquire offscreen target for copy source");
+				var sourceImage = target.ColorImage.Image;
+				var srcSize = viewport.Size;
+
+				var originalCamera = viewport.BaseCamera;
+
+				//TODO All of those vulkan structures can probably be allocated just once, to put them outisde this hot path
+				var sourceToTransferBarrier = new VkImageMemoryBarrier();
+				sourceToTransferBarrier.SrcAccessMask = VkAccessFlags.ColorAttachmentWriteBit;
+				sourceToTransferBarrier.DstAccessMask = VkAccessFlags.TransferReadBit;
+				sourceToTransferBarrier.OldLayout = VkImageLayout.ColorAttachmentOptimal;
+				sourceToTransferBarrier.NewLayout = VkImageLayout.TransferSrcOptimal;
+				sourceToTransferBarrier.SrcQueueFamilyIndex = -1;
+				sourceToTransferBarrier.DstQueueFamilyIndex = -1;
+				sourceToTransferBarrier.Image = sourceImage;
+				sourceToTransferBarrier.SubresourceRange.AspectMask = VkImageAspectFlags.ColorBit;
+				sourceToTransferBarrier.SubresourceRange.BaseMipLevel = 0;
+				sourceToTransferBarrier.SubresourceRange.LevelCount = 1;
+				sourceToTransferBarrier.SubresourceRange.BaseArrayLayer = 0;
+				sourceToTransferBarrier.SubresourceRange.LayerCount = 1;
+
+				var destToTransferBarrier = new VkImageMemoryBarrier();
+				destToTransferBarrier.SrcAccessMask = VkAccessFlags.None;
+				destToTransferBarrier.DstAccessMask = VkAccessFlags.TransferWriteBit;
+				destToTransferBarrier.OldLayout = VkImageLayout.ColorAttachmentOptimal;
+				destToTransferBarrier.NewLayout = VkImageLayout.TransferDstOptimal;
+				destToTransferBarrier.SrcQueueFamilyIndex = -1;
+				destToTransferBarrier.DstQueueFamilyIndex = -1;
+				destToTransferBarrier.Image = eyeSwapchainVkImage;
+				destToTransferBarrier.SubresourceRange.AspectMask = VkImageAspectFlags.ColorBit;
+				destToTransferBarrier.SubresourceRange.BaseMipLevel = 0;
+				destToTransferBarrier.SubresourceRange.LevelCount = 1;
+				destToTransferBarrier.SubresourceRange.BaseArrayLayer = 0;
+				destToTransferBarrier.SubresourceRange.LayerCount = 1;
+
+				var sourceBackToColorBarrier = new VkImageMemoryBarrier();
+				sourceBackToColorBarrier.SrcAccessMask = VkAccessFlags.TransferReadBit;
+				sourceBackToColorBarrier.DstAccessMask = VkAccessFlags.ColorAttachmentWriteBit;
+				sourceBackToColorBarrier.OldLayout = VkImageLayout.TransferSrcOptimal;
+				sourceBackToColorBarrier.NewLayout = VkImageLayout.ColorAttachmentOptimal;
+				sourceBackToColorBarrier.SrcQueueFamilyIndex = -1;
+				sourceBackToColorBarrier.DstQueueFamilyIndex = -1;
+				sourceBackToColorBarrier.Image = sourceImage;
+				sourceBackToColorBarrier.SubresourceRange.AspectMask = VkImageAspectFlags.ColorBit;
+				sourceBackToColorBarrier.SubresourceRange.BaseMipLevel = 0;
+				sourceBackToColorBarrier.SubresourceRange.LevelCount = 1;
+				sourceBackToColorBarrier.SubresourceRange.BaseArrayLayer = 0;
+				sourceBackToColorBarrier.SubresourceRange.LayerCount = 1;
+
+				var destToColorBarrier = new VkImageMemoryBarrier();
+				destToColorBarrier.SrcAccessMask = VkAccessFlags.TransferWriteBit;
+				destToColorBarrier.DstAccessMask = VkAccessFlags.MemoryReadBit;
+				destToColorBarrier.OldLayout = VkImageLayout.TransferDstOptimal;
+				destToColorBarrier.NewLayout = VkImageLayout.ColorAttachmentOptimal;
+				destToColorBarrier.SrcQueueFamilyIndex = -1;
+				destToColorBarrier.DstQueueFamilyIndex = -1;
+				destToColorBarrier.Image = eyeSwapchainVkImage;
+				destToColorBarrier.SubresourceRange.AspectMask = VkImageAspectFlags.ColorBit;
+				destToColorBarrier.SubresourceRange.BaseMipLevel = 0;
+				destToColorBarrier.SubresourceRange.LevelCount = 1;
+				destToColorBarrier.SubresourceRange.BaseArrayLayer = 0;
+				destToColorBarrier.SubresourceRange.LayerCount = 1;
+
+				var blitRegion = new VkImageBlit();
+				blitRegion.SrcSubresource.AspectMask = VkImageAspectFlags.ColorBit;
+				blitRegion.SrcSubresource.MipLevel = 0;
+				blitRegion.SrcSubresource.BaseArrayLayer = 0;
+				blitRegion.SrcSubresource.LayerCount = 1;
+				blitRegion.DstSubresource.AspectMask = VkImageAspectFlags.ColorBit;
+				blitRegion.DstSubresource.MipLevel = 0;
+				blitRegion.DstSubresource.BaseArrayLayer = 0;
+				blitRegion.DstSubresource.LayerCount = 1;
+				blitRegion.SrcOffsets[0] = new VkOffset3D();
+				blitRegion.SrcOffsets[1] = new VkOffset3D();
+				blitRegion.SrcOffsets[1].X = srcSize.X;
+				blitRegion.SrcOffsets[1].Y = srcSize.Y;
+				blitRegion.SrcOffsets[1].Z = 1;
+				blitRegion.DstOffsets[0] = new VkOffset3D();
+				blitRegion.DstOffsets[1] = new VkOffset3D();
+				blitRegion.DstOffsets[1].X = eyeSwapchainImageSize.X;
+				blitRegion.DstOffsets[1].Y = eyeSwapchainImageSize.Y;
+				blitRegion.DstOffsets[1].Z = 1;
+
+
+				Span<VkFence> fencesToReset = stackalloc VkFence[1];
+				fencesToReset[0] = copyFence;
+				vkDevice.ResetFences(fencesToReset);
+				copyCommandBuffer.Reset(VkCommandBufferResetFlags.None);
+
+				var beginInfo = new VkCommandBufferBeginInfo();
+				beginInfo.Flags = VkCommandBufferUsageFlags.OneTimeSubmitBit;
+				copyCommandBuffer.Begin(beginInfo);
+
+				//Transition the memory layout of both texture as source and destination for copy
+				Span<VkImageMemoryBarrier> imageBarriers = stackalloc VkImageMemoryBarrier[1];
+				imageBarriers[0] = sourceToTransferBarrier;
+				copyCommandBuffer.PipelineBarrier(
+					VkPipelineStageFlags.ColorAttachmentOutputBit,
+					VkPipelineStageFlags.TransferBit,
+					VkDependencyFlags.None,
+					default,
+					default,
+					imageBarriers);
+				imageBarriers[0] = destToTransferBarrier;
+				copyCommandBuffer.PipelineBarrier(
+					VkPipelineStageFlags.TopOfPipeBit,
+					VkPipelineStageFlags.TransferBit,
+					VkDependencyFlags.None,
+					default,
+					default,
+					imageBarriers);
+
+				//BLIT one onto the other
+				Span<VkImageBlit> blitRegions = stackalloc VkImageBlit[1];
+				blitRegions[0] = blitRegion;
+				copyCommandBuffer.BlitImage(
+					sourceImage,
+					VkImageLayout.TransferSrcOptimal,
+					eyeSwapchainVkImage,
+					VkImageLayout.TransferDstOptimal,
+					blitRegions,
+					VkFilter.Linear);
+
+				//Restore source back to a color attachment
+				imageBarriers[0] = sourceBackToColorBarrier;
+				copyCommandBuffer.PipelineBarrier(
+					VkPipelineStageFlags.TransferBit,
+					VkPipelineStageFlags.ColorAttachmentOutputBit,
+					VkDependencyFlags.None,
+					default,
+					default,
+					imageBarriers);
+				imageBarriers[0] = destToColorBarrier;
+				copyCommandBuffer.PipelineBarrier(
+					VkPipelineStageFlags.TransferBit,
+					VkPipelineStageFlags.BottomOfPipeBit,
+					VkDependencyFlags.None,
+					default,
+					default,
+					imageBarriers);
+
+				copyCommandBuffer.End();
+
+				//Do the work
+				var submitInfo = new VkSubmitInfo();
+				var bufferArray = stackalloc VkCommandBuffer[1];
+				bufferArray[0] = (VkCommandBuffer)copyCommandBuffer.Handle;
+				submitInfo.CommandBuffers = bufferArray;
+				submitInfo.CommandBufferCount = 1;
+				Span<VkSubmitInfo> submitInfos = stackalloc VkSubmitInfo[1];
+				submitInfos[0] = submitInfo;
+				vkQueue.Submit(submitInfos, copyFence);
+
+				//Make sure it's done
+				vkDevice.WaitForFences(fencesToReset, true, (nint)(-1));
 			}
 
 			public void DestroySession()
@@ -1090,20 +1082,25 @@ namespace KSA
 					copyFence = new VkFence();
 				}
 
-				if (hasSessionBegan)
-					xrEndSession(session);
-
-				for (int i = 0; i < 2; ++i)
+				if (session.Handle != 0)
 				{
-					if (eyeSwapchains[i].Handle != 0)
-						xrDestroySwapchain(eyeSwapchains[i]);
-					eyeSwapchains[i] = new XrSwapchain();
-					eyeSwapchainImages[i]?.Clear();
-				}
+					if (hasSessionBegan)
+						xrEndSession(session);
 
-				xrDestroySession(session);
-				session = new XrSession();
-				hasSessionBegan = false;
+					for (int i = 0; i < 2; ++i)
+					{
+						if (eyeSwapchains[i].Handle != 0)
+							xrDestroySwapchain(eyeSwapchains[i]);
+						eyeSwapchains[i] = new XrSwapchain();
+						eyeSwapchainImages[i]?.Clear();
+					}
+
+					xrDestroySpace(applicationLocalSpace);
+
+					xrDestroySession(session);
+					session = new XrSession();
+					hasSessionBegan = false;
+				}
 			}
 
 			public void Quit()
