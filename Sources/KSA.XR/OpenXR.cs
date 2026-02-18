@@ -769,7 +769,7 @@ namespace KSA.XR
 
 					//sync actions
 
-					var projectionLayerViews = stackalloc XrCompositionLayerProjectionView[2];
+					var layerProjectionViews = stackalloc XrCompositionLayerProjectionView[2];
 
 					//Roll through each eye view, and progress through their swapchain images in the order the runtime requests
 					for (int eye = 0; eye < 2; ++eye)
@@ -821,6 +821,7 @@ namespace KSA.XR
 							 * As a POC the following obtains backbuffer of main game viewport, and just blit it as-is onto the OpenXR swapchain.
 							 */
 
+							//This is a placeholder so that we have *something* to display
 							BlitMainViewIntoXrSwapchainImage(eyeSwapchainVkImage, eyeSwapchainImageSize);
 						}
 						else
@@ -840,10 +841,10 @@ namespace KSA.XR
 						layer.subImage.swapchain = eyeSwapchains[eye];
 						layer.subImage.imageRect.extent.width = eyeRenderTargetSizes[eye].X;
 						layer.subImage.imageRect.extent.height = eyeRenderTargetSizes[eye].Y;
-						projectionLayerViews[eye] = layer;
+						layerProjectionViews[eye] = layer;
 					}
 
-					EndAndSubmitFrame(projectionLayerViews, displayTime);
+					EndAndSubmitFrame(layerProjectionViews, displayTime);
 
 #pragma warning restore CA2014 // Do not use stackalloc in loops
 				}
