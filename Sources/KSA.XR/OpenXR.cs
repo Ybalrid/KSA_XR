@@ -276,8 +276,8 @@ namespace KSA.XR
 		ulong systemId = 0;
 		XrViewConfigurationType viewConfigurationType;
 		public XrViewConfigurationType ViewConfigurationType => viewConfigurationType;
-		XrViewConfigurationView[] eyeViews = new XrViewConfigurationView[2];
-		public XrViewConfigurationView[] EyeViewConfigurations => eyeViews;
+		XrViewConfigurationView[] eyeViewConfigurations = new XrViewConfigurationView[2];
+		public XrViewConfigurationView[] EyeViewConfigurations => eyeViewConfigurations;
 
 		XrEnvironmentBlendMode? blendModeToUse = null;
 
@@ -289,7 +289,9 @@ namespace KSA.XR
 		int2[] eyeRenderTargetSizes = new int2[2];
 		XrPosef[] eyeViewPoses = new XrPosef[2];
 		public XrPosef[] MostRecentEyeViewPoses => eyeViewPoses;
-
+		XrView[] eyeViews = new XrView[2];
+		public XrView[] EyeViews => eyeViews;
+		
 		VkCommandPool copyCommandPool;
 		CommandBuffer copyCommandBuffer;
 		VkFence copyFence;
@@ -458,8 +460,8 @@ namespace KSA.XR
 			xrEnumerateViewConfigurationViews(instance, systemId, viewConfigurationType, viewConfigViewCount, &viewConfigViewCount, viewConfigViews);
 
 			//Should assert that we have at least 2 views (should also check that primary type is stereo then)
-			eyeViews[0] = viewConfigViews[0];
-			eyeViews[1] = viewConfigViews[1];
+			eyeViewConfigurations[0] = viewConfigViews[0];
+			eyeViewConfigurations[1] = viewConfigViews[1];
 
 			Logger.message($"The view configuration is comprised of {viewConfigViewCount} views:");
 			for (int i = 0; i < viewConfigViewCount; ++i)
@@ -700,8 +702,8 @@ namespace KSA.XR
 						swapchainCreateInfo.format = (long)compatibleSwapchainVulkanFormat[formatSelected];
 						swapchainCreateInfo.faceCount = 1;
 						swapchainCreateInfo.arraySize = 1;
-						swapchainCreateInfo.width = (uint)(eyeViews[eye].recommendedImageRectWidth * pixelScale);
-						swapchainCreateInfo.height = (uint)(eyeViews[eye].recommendedImageRectHeight * pixelScale);
+						swapchainCreateInfo.width = (uint)(eyeViewConfigurations[eye].recommendedImageRectWidth * pixelScale);
+						swapchainCreateInfo.height = (uint)(eyeViewConfigurations[eye].recommendedImageRectHeight * pixelScale);
 						//Save the scaled render target size.
 						eyeRenderTargetSizes[eye].X = (int)swapchainCreateInfo.width;
 						eyeRenderTargetSizes[eye].Y = (int)swapchainCreateInfo.height;
@@ -764,8 +766,7 @@ namespace KSA.XR
 					var frameState = SynchronizeAndBeginFrame();
 					long displayTime = frameState.predictedDisplayTime;
 
-					var views = stackalloc XrView[2];
-					LocateViews(displayTime, ref views);
+					LocateViews(displayTime);
 
 					//sync actions
 
@@ -836,8 +837,8 @@ namespace KSA.XR
 
 						XrCompositionLayerProjectionView layer = new XrCompositionLayerProjectionView();
 						layer.type = XrStructureType.XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
-						layer.pose = views[eye].pose;
-						layer.fov = views[eye].fov; //TODO it is porbable that we cound fudge this if we cannot coherce the engine into rendering a asymetrical frustrum 
+						layer.pose = EyeViews[eye].pose;
+						layer.fov = EyeViews[eye].fov; //TODO it is porbable that we cound fudge this if we cannot coherce the engine into rendering a asymetrical frustrum 
 						layer.subImage.swapchain = eyeSwapchains[eye];
 						layer.subImage.imageRect.extent.width = eyeRenderTargetSizes[eye].X;
 						layer.subImage.imageRect.extent.height = eyeRenderTargetSizes[eye].Y;
@@ -890,11 +891,12 @@ namespace KSA.XR
 			CheckXRCall(xrEndFrame(session, &frameEndInfo));
 		}
 
-		private unsafe void LocateViews(long displayTime, ref XrView* views)
+		private unsafe void LocateViews(long displayTime)
 		{
 			//locate views
 			var viewState = new XrViewState();
 			viewState.type = XrStructureType.XR_TYPE_VIEW_STATE;
+			var views = stackalloc XrView[2];
 			views[0].type = XrStructureType.XR_TYPE_VIEW;
 			views[1].type = XrStructureType.XR_TYPE_VIEW;
 			uint viewCount = 0;
@@ -904,6 +906,8 @@ namespace KSA.XR
 			viewLocateInfo.space = applicationLocalSpace;
 			viewLocateInfo.viewConfigurationType = XrViewConfigurationType.XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
 			CheckXRCall(xrLocateViews(session, &viewLocateInfo, &viewState, 2, &viewCount, views));
+			eyeViews[0] = views[0];
+			eyeViews[1] = views[1];
 
 			for (int i = 0; i < viewCount; ++i)
 			{
@@ -1100,23 +1104,27 @@ namespace KSA.XR
 
 		public void DestroySession()
 		{
-			//Cleanup all our Vulkan objects, if allocated
-			if (copyCommandBuffer.VkHandle != 0)
+			if (vkDevice.Handle.VkHandle != 0)
 			{
-				Span<CommandBuffer> commandBuffersToFree = stackalloc CommandBuffer[1];
-				commandBuffersToFree[0] = copyCommandBuffer;
-				vkDevice?.FreeCommandBuffers(copyCommandPool, commandBuffersToFree);
-				copyCommandBuffer = new CommandBuffer();
-			}
-			if (copyCommandPool.VkHandle != 0)
-			{
-				vkDevice?.DestroyCommandPool(copyCommandPool, null);
-				copyCommandPool = new VkCommandPool();
-			}
-			if (copyFence.VkHandle != 0)
-			{
-				vkDevice?.DestroyFence(copyFence, null);
-				copyFence = new VkFence();
+				vkDevice.WaitIdle();
+				//Cleanup all our Vulkan objects, if allocated
+				if (copyCommandBuffer.VkHandle != 0)
+				{
+					Span<CommandBuffer> commandBuffersToFree = stackalloc CommandBuffer[1];
+					commandBuffersToFree[0] = copyCommandBuffer;
+					vkDevice?.FreeCommandBuffers(copyCommandPool, commandBuffersToFree);
+					copyCommandBuffer = new CommandBuffer();
+				}
+				if (copyCommandPool.VkHandle != 0)
+				{
+					vkDevice?.DestroyCommandPool(copyCommandPool, null);
+					copyCommandPool = new VkCommandPool();
+				}
+				if (copyFence.VkHandle != 0)
+				{
+					vkDevice?.DestroyFence(copyFence, null);
+					copyFence = new VkFence();
+				}
 			}
 
 			if (session.Handle != 0)
@@ -1144,7 +1152,7 @@ namespace KSA.XR
 		{
 			openXREventThreadRunning = false;
 			Thread.Sleep(10);
-			DestroySession();
+			//DestroySession();
 		}
 
 		private bool CheckOptionalExtensionIsAvailable(string extName)
