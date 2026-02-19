@@ -10,12 +10,36 @@ using System.Text;
 namespace KSA.XR
 {
 
+	[HarmonyPatch(typeof(KSA.Camera))]
+	[HarmonyPatch(nameof(KSA.Camera.OnFrame))]
+	static class CameraOnFrameTrackingPatch
+	{
+		static void Prefix(KSA.Camera __instance)
+		{
+			var xr = ModInit.openxr;
+			if (xr == null || xr.Session.Handle == 0)
+				return;
+
+			//We currently only hack on the camera of
+			var mainViewport = Program.MainViewport;
+			if (!ReferenceEquals(__instance, mainViewport.BaseCamera))
+				return;
+
+			var pose = xr.EyeViews[0].pose;
+			var rot = pose.orientation;
+			var dRot = new doubleQuat(rot.x, rot.y, rot.z, rot.w);
+			var pos = pose.position;
+			var dPos = new double3(pos.x, pos.y, pos.z);
+
+			__instance.LocalRotation *= dRot;
+			__instance.LocalPosition += dPos;
+		}
+	}
 
 	[HarmonyPatch(typeof(KSA.Camera))]
 	[HarmonyPatch(nameof(KSA.Camera.UpdateProjection))]
 	internal static class CameraPatches
 	{
-
 		public static float4x4 CreatePerspectiveFrustumAnglesReverseZ(
 			 float leftHalfAngleRad,
 			 float rightHalfAngleRad,
@@ -68,7 +92,9 @@ namespace KSA.XR
 
 		static void Postfix(KSA.Camera __instance)
 		{
-		
+			return; //temp disable this
+
+			//Obtain access to ViewProjection matrices
 			var _vpField = AccessTools.Field(__instance.GetType(), "_vp");
 			ViewProjection vp = (ViewProjection)_vpField.GetValue(__instance);
 
@@ -87,8 +113,8 @@ namespace KSA.XR
 				var fov = leftEyeViewConfig.fov;
 				var projectionMatrix = CreatePerspectiveFrustumAnglesReverseZ(fov.angleLeft,
 					fov.angleRight,
-					fov.angleDown, 
-					fov.angleUp, 
+					fov.angleDown,
+					fov.angleUp,
 					__instance.NearPlane, __instance.FarPlane);
 
 				vp.projection = projectionMatrix;
