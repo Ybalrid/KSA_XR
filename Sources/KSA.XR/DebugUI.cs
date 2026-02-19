@@ -48,6 +48,7 @@ namespace KSA.XR
 					{
 						xr.DestroySession();
 						XrSessionStarted = false;
+						Program.MainViewport.BaseCamera.UpdateProjection();
 					}
 
 					var yellowColor = new float4();

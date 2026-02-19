@@ -278,6 +278,8 @@ namespace KSA.XR
 		public XrViewConfigurationType ViewConfigurationType => viewConfigurationType;
 		XrViewConfigurationView[] eyeViewConfigurations = new XrViewConfigurationView[2];
 		public XrViewConfigurationView[] EyeViewConfigurations => eyeViewConfigurations;
+		XrFovf[] symetricalEyeFov = new XrFovf[2];
+		public XrFovf[] SysmetricalEyeFov => symetricalEyeFov;
 
 		XrEnvironmentBlendMode? blendModeToUse = null;
 
@@ -439,6 +441,23 @@ namespace KSA.XR
 #endif
 		}
 
+		private XrFovf ComputeSymetricalFov(XrFovf fov)
+		{
+			XrFovf newFov = new XrFovf();
+
+			//Find the largest half-angle for each axis
+			float maxHoriz = MathF.Max(-fov.angleLeft, fov.angleRight);
+			float maxVert = MathF.Max(-fov.angleDown, fov.angleUp);
+
+			//Make Fov larger, and symetrical
+			newFov.angleLeft = -maxHoriz;
+			newFov.angleRight = maxHoriz;
+			newFov.angleDown = -maxVert;
+			newFov.angleUp = maxVert;
+
+			return newFov;
+		}
+		
 		private unsafe void EnumerateViews()
 		{
 			uint viewConfigCount = 0;
@@ -838,7 +857,8 @@ namespace KSA.XR
 						XrCompositionLayerProjectionView layer = new XrCompositionLayerProjectionView();
 						layer.type = XrStructureType.XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
 						layer.pose = EyeViews[eye].pose;
-						layer.fov = EyeViews[eye].fov; //TODO it is porbable that we cound fudge this if we cannot coherce the engine into rendering a asymetrical frustrum 
+						//layer.fov = EyeViews[eye].fov; //TODO it is porbable that we cound fudge this if we cannot coherce the engine into rendering a asymetrical frustrum 
+						layer.fov = symetricalEyeFov[eye];
 						layer.subImage.swapchain = eyeSwapchains[eye];
 						layer.subImage.imageRect.extent.width = eyeRenderTargetSizes[eye].X;
 						layer.subImage.imageRect.extent.height = eyeRenderTargetSizes[eye].Y;
@@ -906,11 +926,11 @@ namespace KSA.XR
 			viewLocateInfo.space = applicationLocalSpace;
 			viewLocateInfo.viewConfigurationType = XrViewConfigurationType.XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
 			CheckXRCall(xrLocateViews(session, &viewLocateInfo, &viewState, 2, &viewCount, views));
-			eyeViews[0] = views[0];
-			eyeViews[1] = views[1];
 
 			for (int i = 0; i < viewCount; ++i)
 			{
+				eyeViews[i] = views[i];
+				symetricalEyeFov[i] = ComputeSymetricalFov(views[i].fov);
 				var view = views[i];
 				var eye = (EyeIndex)i;
 				eyeViewPoses[i] = new XrPosef();

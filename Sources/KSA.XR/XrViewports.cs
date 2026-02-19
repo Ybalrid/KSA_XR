@@ -31,8 +31,12 @@ namespace KSA.XR
 			var pos = pose.position;
 			var dPos = new double3(pos.x, pos.y, pos.z);
 
+			//Apply tracking
 			__instance.LocalRotation *= dRot;
 			__instance.LocalPosition += dPos;
+
+			//Recompute projection 
+			__instance.UpdateProjection();
 		}
 	}
 
@@ -64,14 +68,13 @@ namespace KSA.XR
 
 			float4x4 m = float4x4.Identity;
 
-			// Match your reference function's sign/layout:
 			m.M11 = 2f * nearPlaneDistance * invRL;
 			m.M12 = 0f;
 			m.M13 = (r + l) * invRL;
 			m.M14 = 0f;
 
 			m.M21 = 0f;
-			m.M22 = -2f * nearPlaneDistance * invTB;   // NOTE the minus (matches your M22 = -num)
+			m.M22 = -2f * nearPlaneDistance * invTB;
 			m.M23 = (t + b) * invTB;
 			m.M24 = 0f;
 
@@ -85,6 +88,11 @@ namespace KSA.XR
 			m.M43 = (nearPlaneDistance * farPlaneDistance) / (farPlaneDistance - nearPlaneDistance);
 			m.M44 = 0f;
 
+			/*//hack force symetry for debug
+			m.M13 = 0;
+			m.M23 = 0;
+			*/
+
 			return m;
 		}
 
@@ -92,14 +100,12 @@ namespace KSA.XR
 
 		static void Postfix(KSA.Camera __instance)
 		{
-			return; //temp disable this
-
 			//Obtain access to ViewProjection matrices
 			var _vpField = AccessTools.Field(__instance.GetType(), "_vp");
 			ViewProjection vp = (ViewProjection)_vpField.GetValue(__instance);
 
 			var _vpInvField = AccessTools.Field(__instance.GetType(), "_vpInv");
-			ViewProjection vpInv = (ViewProjection)_vpField.GetValue(__instance);
+			ViewProjection vpInv = (ViewProjection)_vpInvField.GetValue(__instance);
 
 			var xr = ModInit.openxr;
 			if (xr != null && xr.Instance.Handle != 0 && xr.Session.Handle != 0)
@@ -110,7 +116,7 @@ namespace KSA.XR
 
 				//Get the left eye view
 				var leftEyeViewConfig = xr.EyeViews[0];
-				var fov = leftEyeViewConfig.fov;
+				var fov = xr.SysmetricalEyeFov[0];
 				var projectionMatrix = CreatePerspectiveFrustumAnglesReverseZ(fov.angleLeft,
 					fov.angleRight,
 					fov.angleDown,
