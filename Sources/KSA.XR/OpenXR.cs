@@ -277,6 +277,7 @@ namespace KSA.XR
 		XrViewConfigurationType viewConfigurationType;
 		public XrViewConfigurationType ViewConfigurationType => viewConfigurationType;
 		XrViewConfigurationView[] eyeViewConfigurations = new XrViewConfigurationView[2];
+		bool mutableFov = false;
 		public XrViewConfigurationView[] EyeViewConfigurations => eyeViewConfigurations;
 		XrFovf[] symetricalEyeFov = new XrFovf[2];
 		public XrFovf[] SysmetricalEyeFov => symetricalEyeFov;
@@ -486,6 +487,13 @@ namespace KSA.XR
 			XrViewConfigurationProperties viewConfigurationProperties = new XrViewConfigurationProperties();
 			viewConfigurationProperties.type = XrStructureType.XR_TYPE_VIEW_CONFIGURATION_PROPERTIES;
 			CheckXRCall(xrGetViewConfigurationProperties(instance, systemId, viewConfigurationType, &viewConfigurationProperties));
+
+			//TODO can use symetric projection only if this is true
+			mutableFov = viewConfigurationProperties.fovMutable;
+			if (mutableFov)
+				Logger.message("View configuration has mutable fov");
+			else
+				Logger.warning("View configuration does not have mutable fov, symetric frustum rendering may not work");
 
 			uint viewConfigViewCount = 0;
 			xrEnumerateViewConfigurationViews(instance, systemId, viewConfigurationType, viewConfigViewCount, &viewConfigViewCount, null);
