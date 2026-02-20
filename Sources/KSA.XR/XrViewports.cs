@@ -1,11 +1,14 @@
-﻿using Brutal.Numerics;
+using Brutal.Numerics;
+using Brutal.VulkanApi;
 using HarmonyLib;
 using KSA;
 using RenderCore;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
-using System.Text;
+using System.Reflection.Emit;
+using System.Reflection;
 
 
 namespace KSA.XR
@@ -241,6 +244,26 @@ namespace KSA.XR
 	[HarmonyPatch("RenderGame")]
 	internal static class ProgramRenderGamePatches
 	{
+		[HarmonyTranspiler]
+		static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+		{
+			var replacementGeneric = AccessTools.Method(typeof(ProgramRenderGamePatches), nameof(RenderScreenspaceIfAllowed));
+			foreach (var instruction in instructions)
+			{
+				if ((instruction.opcode == OpCodes.Call || instruction.opcode == OpCodes.Callvirt) &&
+				    instruction.operand is MethodInfo called &&
+				    called.DeclaringType == typeof(KSA.ScreenspaceRenderer) &&
+				    called.Name == "Render" &&
+				    called.IsGenericMethod)
+				{
+					var replacement = replacementGeneric.MakeGenericMethod(called.GetGenericArguments());
+					instruction.opcode = OpCodes.Call;
+					instruction.operand = replacement;
+				}
+
+				yield return instruction;
+			}
+		}
 
 		static void Prefix(KSA.Program __instance)
 		{
@@ -249,8 +272,33 @@ namespace KSA.XR
 		static void Postfix(KSA.Program __instance)
 		{
 		}
+
+		static void RenderScreenspaceIfAllowed<T>(KSA.ScreenspaceRenderer renderer, CommandBuffer inCommandBuffer, int frameIndex, T pushConstant) where T : unmanaged
+		{
+			if (XrViewports.Instance.CurrentRenderState != XrViewports.RenderHackPasses.NormalGame)
+				return;
+
+			renderer.Render(inCommandBuffer, frameIndex, pushConstant);
+		}
 	}
 
+	[HarmonyPatch]
+	internal static class SkipImGuiRenderDrawDataPatch
+	{
+		static IEnumerable<MethodBase> TargetMethods()
+		{
+			foreach (var method in AccessTools.GetDeclaredMethods(typeof(KSA.ImGuiBackendVulkanImpl)))
+			{
+				if (method.Name == "RenderDrawData")
+					yield return method;
+			}
+		}
 
+		static bool Prefix()
+		{
+			return XrViewports.Instance.CurrentRenderState == XrViewports.RenderHackPasses.NormalGame;
+		}
+	}
 
 }
+
