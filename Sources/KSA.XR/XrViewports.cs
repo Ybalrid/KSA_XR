@@ -67,6 +67,11 @@ namespace KSA.XR
 			}
 		}
 
+		public void ResetStateToNormal()
+		{
+			currentRenderHackState = RenderHackPasses.NormalGame;
+		}
+
 		//Get current renderer state. Is it normal viewport or XR buffer
 		public RenderHackPasses CurrentRenderState => currentRenderHackState;
 		//Get current eye for XR, is it left or right?
