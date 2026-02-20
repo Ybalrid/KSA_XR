@@ -1,11 +1,12 @@
-# KSA_XR
+# KSA_XR [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 [OpenXR 1.0](https://www.khronos.org/openxr/) support for [Kittens Space Agency](https://ahwoo.com/app/100000/kitten-space-agency)
 
 This mod is intended to support any OpenXR compatible system implementing the HMD Form Factor, with a primary stereo view.
 
-
 This mod is written against the [StarMap loader](https://github.com/StarMapLoader/StarMap)
+
+Validated against KSA build 3638
 
 ## Reqs
 - Visual Studio 2026
