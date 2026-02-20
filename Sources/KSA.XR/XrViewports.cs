@@ -235,6 +235,47 @@ namespace KSA.XR
 	internal static class ProgramOnFramePatches
 	{
 		static bool runOnce = false;
+		private static readonly MethodInfo RenderGameMethod = AccessTools.Method(
+			typeof(KSA.Program),
+			"RenderGame",
+			new[] { typeof(RenderCore.AcquiredFrame), typeof(double) });
+
+		[HarmonyTranspiler]
+		static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
+		{
+			var tryAcquireReplacement = AccessTools.Method(typeof(ProgramOnFramePatches), nameof(TryAcquireNextFrameIfAllowed));
+			var renderGameReplacement = AccessTools.Method(typeof(ProgramOnFramePatches), nameof(RenderGameIfAllowed));
+			var trySubmitNoArgsReplacement = AccessTools.Method(typeof(ProgramOnFramePatches), nameof(TrySubmitFrameIfAllowed), new[] { typeof(Core.Renderer) });
+			var trySubmitWithArgsReplacement = AccessTools.Method(
+				typeof(ProgramOnFramePatches),
+				nameof(TrySubmitFrameIfAllowed),
+				new[] { typeof(Core.Renderer), typeof(Span<VkSemaphore>), typeof(Span<VkPipelineStageFlags>), typeof(Span<VkSemaphore>) });
+
+			foreach (var instruction in instructions)
+			{
+				if ((instruction.opcode == OpCodes.Call || instruction.opcode == OpCodes.Callvirt) &&
+				    instruction.operand is MethodInfo called)
+				{
+					if (called.DeclaringType == typeof(Core.Renderer) && called.Name == "TryAcquireNextFrame")
+					{
+						instruction.opcode = OpCodes.Call;
+						instruction.operand = tryAcquireReplacement;
+					}
+					else if (called.DeclaringType == typeof(KSA.Program) && called.Name == "RenderGame")
+					{
+						instruction.opcode = OpCodes.Call;
+						instruction.operand = renderGameReplacement;
+					}
+					else if (called.DeclaringType == typeof(Core.Renderer) && called.Name == "TrySubmitFrame")
+					{
+						instruction.opcode = OpCodes.Call;
+						instruction.operand = called.GetParameters().Length == 0 ? trySubmitNoArgsReplacement : trySubmitWithArgsReplacement;
+					}
+				}
+
+				yield return instruction;
+			}
+		}
 
 		static void Prefix(KSA.Program __instance)
 		{
@@ -242,6 +283,44 @@ namespace KSA.XR
 
 		static void Postfix(KSA.Program __instance)
 		{
+		}
+
+		static RenderCore.FrameAcquireResult TryAcquireNextFrameIfAllowed(Core.Renderer renderer)
+		{
+			if (XrViewports.Instance.CurrentRenderState != XrViewports.RenderHackPasses.NormalGame)
+			{
+				return new RenderCore.FrameAcquireResult
+				{
+					Result = RenderCore.FrameResult.Success,
+					Value = default
+				};
+			}
+
+			return renderer.TryAcquireNextFrame();
+		}
+
+		static void RenderGameIfAllowed(KSA.Program program, RenderCore.AcquiredFrame frame, double dt)
+		{
+			if (XrViewports.Instance.CurrentRenderState != XrViewports.RenderHackPasses.NormalGame)
+				return;
+
+			RenderGameMethod.Invoke(program, new object[] { frame, dt });
+		}
+
+		static RenderCore.FrameResult TrySubmitFrameIfAllowed(Core.Renderer renderer)
+		{
+			if (XrViewports.Instance.CurrentRenderState != XrViewports.RenderHackPasses.NormalGame)
+				return RenderCore.FrameResult.Success;
+
+			return renderer.TrySubmitFrame();
+		}
+
+		static RenderCore.FrameResult TrySubmitFrameIfAllowed(Core.Renderer renderer, Span<VkSemaphore> waitSemaphores, Span<VkPipelineStageFlags> waitStages, Span<VkSemaphore> signalSemaphores)
+		{
+			if (XrViewports.Instance.CurrentRenderState != XrViewports.RenderHackPasses.NormalGame)
+				return RenderCore.FrameResult.Success;
+
+			return renderer.TrySubmitFrame(waitSemaphores, waitStages, signalSemaphores);
 		}
 	}
 
