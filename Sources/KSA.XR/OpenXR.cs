@@ -293,7 +293,10 @@ namespace KSA.XR
 		public XrPosef[] MostRecentEyeViewPoses => eyeViewPoses;
 		XrView[] eyeViews = new XrView[2];
 		public XrView[] EyeViews => eyeViews;
-		
+
+		long xrDisplayTime = 0;
+		XrCompositionLayerProjectionView[] layerProjectionViews = new XrCompositionLayerProjectionView[2];
+
 		VkCommandPool copyCommandPool;
 		CommandBuffer copyCommandBuffer;
 		VkFence copyFence;
@@ -769,6 +772,9 @@ namespace KSA.XR
 				XrResult.XR_TIMEOUT_EXPIRED
 			};
 
+		bool frameInFlight = false;
+		bool[] hasEye = { false, false };
+
 		public unsafe void OnFrame(double time)
 		{
 			try
@@ -782,18 +788,30 @@ namespace KSA.XR
 
 				if (hasSessionBegan)
 				{
-					var frameState = SynchronizeAndBeginFrame();
-					long displayTime = frameState.predictedDisplayTime;
+					if (XrViewports.Instance.CurrentRenderState == XrViewports.RenderHackPasses.NormalGame && frameInFlight && (hasEye[0] && hasEye[1]))
+					{
+						fixed (XrCompositionLayerProjectionView* ptr = layerProjectionViews)
+						{
+							EndAndSubmitFrame((hasEye[0] && hasEye[1]) ? ptr : null, xrDisplayTime);
+							frameInFlight = false;
+							hasEye[0] = hasEye[1] = false;
+						}
 
-					LocateViews(displayTime);
+					}
 
-					//sync actions
-
-					var layerProjectionViews = stackalloc XrCompositionLayerProjectionView[2];
+					if (XrViewports.Instance.CurrentRenderState == XrViewports.RenderHackPasses.NormalGame && !frameInFlight)
+						{
+							var frameState = SynchronizeAndBeginFrame();
+							xrDisplayTime = frameState.predictedDisplayTime;
+							LocateViews(xrDisplayTime);
+							//sync actions
+							frameInFlight = true;
+						}
 
 					//Roll through each eye view, and progress through their swapchain images in the order the runtime requests
-					for (int eye = 0; eye < 2; ++eye)
+					if (XrViewports.Instance.CurrentRenderState == XrViewports.RenderHackPasses.XR && frameInFlight)
 					{
+						var eye = (int)XrViewports.Instance.CurrentXREye;
 #pragma warning disable CA2014 // Do not use stackalloc in loops
 						uint index = 0xFFFFFFFF;
 						//obtain swapchain image for current frame
@@ -843,6 +861,7 @@ namespace KSA.XR
 
 							//This is a placeholder so that we have *something* to display
 							BlitMainViewIntoXrSwapchainImage(eyeSwapchainVkImage, eyeSwapchainImageSize);
+							Logger.message($"success blit of image for eye {eye}");
 						}
 						else
 						{
@@ -863,9 +882,9 @@ namespace KSA.XR
 						layer.subImage.imageRect.extent.width = eyeRenderTargetSizes[eye].X;
 						layer.subImage.imageRect.extent.height = eyeRenderTargetSizes[eye].Y;
 						layerProjectionViews[eye] = layer;
-					}
 
-					EndAndSubmitFrame(layerProjectionViews, displayTime);
+						hasEye[eye] = true;
+					}
 
 #pragma warning restore CA2014 // Do not use stackalloc in loops
 				}
@@ -884,10 +903,12 @@ namespace KSA.XR
 			var waitFrameInfo = new XrFrameWaitInfo();
 			waitFrameInfo.type = XrStructureType.XR_TYPE_FRAME_WAIT_INFO;
 			CheckXRCall(xrWaitFrame(session, &waitFrameInfo, &frameState));
+			Logger.message("xrWaitFrame");
 
 			var frameBeginInfo = new XrFrameBeginInfo();
 			frameBeginInfo.type = XrStructureType.XR_TYPE_FRAME_BEGIN_INFO;
 			CheckXRCall(xrBeginFrame(session, &frameBeginInfo));
+			Logger.message("xrBeginFrame");
 			return frameState;
 		}
 
@@ -904,11 +925,16 @@ namespace KSA.XR
 
 			var frameEndInfo = new XrFrameEndInfo();
 			frameEndInfo.type = XrStructureType.XR_TYPE_FRAME_END_INFO;
-			frameEndInfo.layerCount = 1;
+			if (projectionLayerViews != null)
+				frameEndInfo.layerCount = 1;
+			else
+				frameEndInfo.layerCount = 0;
+
 			frameEndInfo.layers = (XrCompositionLayerBaseHeader**)layers;
 			frameEndInfo.environmentBlendMode = XrEnvironmentBlendMode.XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
 			frameEndInfo.displayTime = displayTime;
 			CheckXRCall(xrEndFrame(session, &frameEndInfo));
+			Logger.message("xrEndFrame");
 		}
 
 		private unsafe void LocateViews(long displayTime)
@@ -926,6 +952,7 @@ namespace KSA.XR
 			viewLocateInfo.space = applicationLocalSpace;
 			viewLocateInfo.viewConfigurationType = XrViewConfigurationType.XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
 			CheckXRCall(xrLocateViews(session, &viewLocateInfo, &viewState, 2, &viewCount, views));
+			Logger.message("xrLocateViews");
 
 			for (int i = 0; i < viewCount; ++i)
 			{

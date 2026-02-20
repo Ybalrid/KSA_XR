@@ -10,12 +10,81 @@ using System.Text;
 namespace KSA.XR
 {
 
+	internal class XrViewports
+	{
+		private static XrViewports? instance = null;
+		
+		//Singletonize me
+		public static XrViewports Instance
+		{
+			get
+			{
+				if (instance != null)
+					return instance;
+
+				instance = new XrViewports();
+				return instance;
+			}
+		}
+
+		//State machine to keept rack of the current rendering
+		public enum RenderHackPasses
+		{
+			NormalGame,
+			XR
+		};
+
+		private RenderHackPasses currentRenderHackState = RenderHackPasses.NormalGame;
+		private OpenXR.EyeIndex currentXREye = OpenXR.EyeIndex.Left;
+
+		//State machine transition function
+		public void RenderFinished()
+		{
+			if(currentRenderHackState == RenderHackPasses.NormalGame)
+			{
+				currentRenderHackState = RenderHackPasses.XR;
+				currentXREye = OpenXR.EyeIndex.Left;
+				return;
+			}
+
+			if(currentRenderHackState == RenderHackPasses.XR)
+			{
+				if(currentXREye == OpenXR.EyeIndex.Left)
+				{
+					currentXREye = OpenXR.EyeIndex.Right;
+					return;
+				}
+
+				if(currentXREye == OpenXR.EyeIndex.Right)
+				{
+					currentRenderHackState = RenderHackPasses.NormalGame;
+					return;
+				}
+			}
+		}
+
+		//Get current renderer state. Is it normal viewport or XR buffer
+		public RenderHackPasses CurrentRenderState => currentRenderHackState;
+		//Get current eye for XR, is it left or right?
+		public OpenXR.EyeIndex CurrentXREye => currentXREye;
+
+		public void DebugDisplayState()
+		{
+			Logger.message($"RenderHack state {CurrentRenderState}");
+			if(CurrentRenderState == RenderHackPasses.XR)
+				Logger.message($"Eye {CurrentXREye}");
+		}
+	}
+
 	[HarmonyPatch(typeof(KSA.Camera))]
 	[HarmonyPatch(nameof(KSA.Camera.OnFrame))]
 	static class CameraOnFrameTrackingPatch
 	{
 		static void Prefix(KSA.Camera __instance)
 		{
+			if (XrViewports.Instance.CurrentRenderState == XrViewports.RenderHackPasses.NormalGame)
+				return;
+
 			var xr = ModInit.openxr;
 			if (xr == null || xr.Session.Handle == 0)
 				return;
@@ -25,13 +94,16 @@ namespace KSA.XR
 			if (!ReferenceEquals(__instance, mainViewport.BaseCamera))
 				return;
 
-			var pose = xr.EyeViews[0].pose;
+			var pose = xr.EyeViews[(int)XrViewports.Instance.CurrentXREye].pose;
 			var rot = pose.orientation;
 			var dRot = new doubleQuat(rot.x, rot.y, rot.z, rot.w);
 			var pos = pose.position;
 			var dPos = new double3(pos.x, pos.y, pos.z);
 
 			//Apply tracking
+			var refernceFrame = __instance.LocalRotation;
+			dPos = refernceFrame * dPos;
+
 			__instance.LocalRotation *= dRot;
 			__instance.LocalPosition += dPos;
 
@@ -95,6 +167,9 @@ namespace KSA.XR
 
 		static void Postfix(KSA.Camera __instance)
 		{
+			if (XrViewports.Instance.CurrentRenderState == XrViewports.RenderHackPasses.NormalGame)
+				return;
+
 			//Obtain access to ViewProjection matrices
 			var _vpField = AccessTools.Field(__instance.GetType(), "_vp");
 			ViewProjection vp = (ViewProjection)_vpField.GetValue(__instance);
@@ -110,8 +185,8 @@ namespace KSA.XR
 					return;
 
 				//Get the left eye view
-				var leftEyeViewConfig = xr.EyeViews[0];
-				var fov = xr.SysmetricalEyeFov[0];
+				var leftEyeViewConfig = xr.EyeViews[(int)XrViewports.Instance.CurrentXREye];
+				var fov = xr.SysmetricalEyeFov[(int)XrViewports.Instance.CurrentXREye];
 				var projectionMatrix = CreatePerspectiveFrustumAnglesReverseZ(fov.angleLeft,
 					fov.angleRight,
 					fov.angleDown,
@@ -135,21 +210,34 @@ namespace KSA.XR
 
 	[HarmonyPatch(typeof(KSA.Program))]
 	[HarmonyPatch("OnFrame")]
-	internal static class ProgramPatches
+	internal static class ProgramOnFramePatches
 	{
 		static bool runOnce = false;
+
+		static void Prefix(KSA.Program __instance)
+		{
+		}
+
 		static void Postfix(KSA.Program __instance)
 		{
-			if (!runOnce)
-			{
-				runOnce = true;
-				Logger.message("OnFrame()");
-			}
+		}
+	}
+
+	[HarmonyPatch(typeof(KSA.Program))]
+	[HarmonyPatch("RenderGame")]
+	internal static class ProgramRenderGamePatches
+	{
+
+		static void Prefix(KSA.Program __instance)
+		{
+		}
+
+		static void Postfix(KSA.Program __instance)
+		{
+			XrViewports.Instance.RenderFinished();
 		}
 	}
 
 
-	internal class XrViewports
-	{
-	}
+
 }

@@ -37,7 +37,7 @@ namespace KSA.XR
 		[StarMapAfterOnFrame]
 		public void OnFrame(double time, double dt)
 		{
-			openxr?.OnFrame(dt);
+			ModInit.openxr?.OnFrame(0);
 		}
 
 		[StarMapUnload]
