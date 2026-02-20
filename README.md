@@ -8,7 +8,24 @@ This mod is written against the [StarMap loader](https://github.com/StarMapLoade
 
 Validated against KSA build 3638
 
-## Reqs
+## Installation
+
+- Download and install [StarMap](https://github.com/StarMapLoader/StarMap) first.
+- Download the latest archive from the Releases tab on GitHub.
+- Extract the zip content into `Kitten Space Agency\Content\KSA_XR`
+- Add the following to `Documents\My Games\Kitten Space Agency\manifest.toml`
+
+```toml
+[[mods]]
+id = "KSA_XR"
+enabled = true
+```
+
+##  Usage
+- Start your OpenXR runtime (SteamVR, Oculus Link, Virtual Desktop, etc..)
+- Start StarMap.exe 
+
+## Build Requirements
 - Visual Studio 2026
 - .net10
 - OpenXR 1.0 compliant runtime and hardware
