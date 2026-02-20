@@ -10,6 +10,7 @@ namespace KSA.XR
 			Logger.message("Initialize Debug UI");
 		}
 
+		public bool TestBool = false;
 		bool XrSessionStarted = false;
 		float renderBufferResoltuionScale = 1f;
 		public void StatusWindow()
@@ -70,6 +71,7 @@ namespace KSA.XR
 						var state = XrViewports.Instance.CurrentRenderState;
 
 						ImGui.Text($"State {state} eye {eye}");
+						ImGui.Checkbox("Disable Symetric FoV is layer submission", ref TestBool);
 					}
 				}
 				else

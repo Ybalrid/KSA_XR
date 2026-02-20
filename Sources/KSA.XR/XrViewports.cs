@@ -1,6 +1,7 @@
 ﻿using Brutal.Numerics;
 using HarmonyLib;
 using KSA;
+using RenderCore;
 using System;
 using System.Collections.Generic;
 using System.Numerics;
@@ -74,6 +75,16 @@ namespace KSA.XR
 			if(CurrentRenderState == RenderHackPasses.XR)
 				Logger.message($"Eye {CurrentXREye}");
 		}
+
+
+		static public int swapeye(int eye)
+		{
+			if (eye == 0)
+				return 1;
+			else
+				return 0;
+		}
+
 	}
 
 	[HarmonyPatch(typeof(KSA.Camera))]
@@ -83,7 +94,11 @@ namespace KSA.XR
 		static void Prefix(KSA.Camera __instance)
 		{
 			if (XrViewports.Instance.CurrentRenderState == XrViewports.RenderHackPasses.NormalGame)
+			{
+				//Compute screen correct projection
+				__instance.UpdateProjection();
 				return;
+			}
 
 			var xr = ModInit.openxr;
 			if (xr == null || xr.Session.Handle == 0)
@@ -94,19 +109,17 @@ namespace KSA.XR
 			if (!ReferenceEquals(__instance, mainViewport.BaseCamera))
 				return;
 
-			var pose = xr.EyeViews[(int)XrViewports.Instance.CurrentXREye].pose;
+			var pose = xr.EyeViews[((int)XrViewports.Instance.CurrentXREye)].pose;
 			var rot = pose.orientation;
 			var dRot = new doubleQuat(rot.x, rot.y, rot.z, rot.w);
 			var pos = pose.position;
 			var dPos = new double3(pos.x, pos.y, pos.z);
 
-			//Apply tracking
-			var refernceFrame = __instance.LocalRotation;
-			dPos = refernceFrame * dPos;
 
+			//Apply Tracking
 			__instance.LocalRotation *= dRot;
-			__instance.LocalPosition += dPos;
-
+			__instance.LocalPosition += __instance.LocalRotation * (dPos);
+			
 			//Recompute projection 
 			__instance.UpdateProjection();
 		}
@@ -185,8 +198,9 @@ namespace KSA.XR
 					return;
 
 				//Get the left eye view
-				var leftEyeViewConfig = xr.EyeViews[(int)XrViewports.Instance.CurrentXREye];
-				var fov = xr.SysmetricalEyeFov[(int)XrViewports.Instance.CurrentXREye];
+				var fov = xr.SysmetricalEyeFov[((int)XrViewports.Instance.CurrentXREye)];
+
+				//TODO this will support asymetrical projections, but currently we force it to not break culling
 				var projectionMatrix = CreatePerspectiveFrustumAnglesReverseZ(fov.angleLeft,
 					fov.angleRight,
 					fov.angleDown,
@@ -194,7 +208,7 @@ namespace KSA.XR
 					__instance.NearPlane, __instance.FarPlane);
 
 				vp.projection = projectionMatrix;
-
+				
 				if (!float4x4.Invert(vp.projection, out vpInv.projection))
 				{
 					Logger.error("Patch computed a projection matrix that is non-inversible. Cannot apply it");
@@ -234,7 +248,6 @@ namespace KSA.XR
 
 		static void Postfix(KSA.Program __instance)
 		{
-			XrViewports.Instance.RenderFinished();
 		}
 	}
 

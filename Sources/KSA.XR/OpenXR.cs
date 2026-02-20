@@ -444,23 +444,36 @@ namespace KSA.XR
 #endif
 		}
 
-		private XrFovf ComputeSymetricalFov(XrFovf fov)
+		private XrFovf ComputeSymetricalFov(XrFovf leftEyeFov, XrFovf rightEyeFov)
 		{
-			XrFovf newFov = new XrFovf();
+			// Match old Oculus logic in tangent space:
+				// combinedTanHalfFovHorizontal = max(LeftTan, RightTan)
+				// combinedTanHalfFovVertical   = max(UpTan, DownTan)
+				// OpenXR uses signed radians where left/down are negative.
+				var leftTan = MathF.Max(
+					MathF.Tan(-leftEyeFov.angleLeft),
+					MathF.Tan(-rightEyeFov.angleLeft));
+				var rightTan = MathF.Max(
+					MathF.Tan(leftEyeFov.angleRight),
+					MathF.Tan(rightEyeFov.angleRight));
+				var downTan = MathF.Max(
+					MathF.Tan(-leftEyeFov.angleDown),
+					MathF.Tan(-rightEyeFov.angleDown));
+				var upTan = MathF.Max(
+					MathF.Tan(leftEyeFov.angleUp),
+					MathF.Tan(rightEyeFov.angleUp));
 
-			//Find the largest half-angle for each axis
-			float maxHoriz = MathF.Max(-fov.angleLeft, fov.angleRight);
-			float maxVert = MathF.Max(-fov.angleDown, fov.angleUp);
+				var horizontalTan = MathF.Max(leftTan, rightTan);
+				var verticalTan = MathF.Max(upTan, downTan);
 
-			//Make Fov larger, and symetrical
-			newFov.angleLeft = -maxHoriz;
-			newFov.angleRight = maxHoriz;
-			newFov.angleDown = -maxVert;
-			newFov.angleUp = maxVert;
-
-			return newFov;
+				XrFovf symmetricFov = new XrFovf();
+				symmetricFov.angleLeft = -MathF.Atan(horizontalTan);
+				symmetricFov.angleRight = MathF.Atan(horizontalTan);
+				symmetricFov.angleDown = -MathF.Atan(verticalTan);
+				symmetricFov.angleUp = MathF.Atan(verticalTan);
+				return symmetricFov;
 		}
-		
+
 		private unsafe void EnumerateViews()
 		{
 			uint viewConfigCount = 0;
@@ -772,8 +785,14 @@ namespace KSA.XR
 				XrResult.XR_TIMEOUT_EXPIRED
 			};
 
+
 		bool frameInFlight = false;
 		bool[] hasEye = { false, false };
+
+		private void ResetRenderingStateTracking()
+		{
+			frameInFlight = hasEye[0] = hasEye[1] = false;
+		}
 
 		public unsafe void OnFrame(double time)
 		{
@@ -790,29 +809,37 @@ namespace KSA.XR
 				{
 					if (XrViewports.Instance.CurrentRenderState == XrViewports.RenderHackPasses.NormalGame && frameInFlight && (hasEye[0] && hasEye[1]))
 					{
+						/*
+						var tmp = layerProjectionViews[0].subImage.swapchain;
+						layerProjectionViews[1].subImage.swapchain = layerProjectionViews[0].subImage.swapchain;
+						layerProjectionViews[0].subImage.swapchain = tmp;
+						*/
 						fixed (XrCompositionLayerProjectionView* ptr = layerProjectionViews)
 						{
 							EndAndSubmitFrame((hasEye[0] && hasEye[1]) ? ptr : null, xrDisplayTime);
 							frameInFlight = false;
 							hasEye[0] = hasEye[1] = false;
 						}
-
 					}
 
 					if (XrViewports.Instance.CurrentRenderState == XrViewports.RenderHackPasses.NormalGame && !frameInFlight)
-						{
-							var frameState = SynchronizeAndBeginFrame();
-							xrDisplayTime = frameState.predictedDisplayTime;
-							LocateViews(xrDisplayTime);
-							//sync actions
-							frameInFlight = true;
-						}
+					{
+						var frameState = SynchronizeAndBeginFrame();
+						xrDisplayTime = frameState.predictedDisplayTime;
+						LocateViews(xrDisplayTime);
+						//sync actions
+						frameInFlight = true;
+					}
 
 					//Roll through each eye view, and progress through their swapchain images in the order the runtime requests
 					if (XrViewports.Instance.CurrentRenderState == XrViewports.RenderHackPasses.XR && frameInFlight)
 					{
 						var eye = (int)XrViewports.Instance.CurrentXREye;
+						var otherEye = eye == 0 ? 1 : 0;
+
+
 #pragma warning disable CA2014 // Do not use stackalloc in loops
+
 						uint index = 0xFFFFFFFF;
 						//obtain swapchain image for current frame
 						var swapchainImageAcquireInfo = new XrSwapchainImageAcquireInfo();
@@ -876,17 +903,25 @@ namespace KSA.XR
 						XrCompositionLayerProjectionView layer = new XrCompositionLayerProjectionView();
 						layer.type = XrStructureType.XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
 						layer.pose = EyeViews[eye].pose;
-						//layer.fov = EyeViews[eye].fov; //TODO it is porbable that we cound fudge this if we cannot coherce the engine into rendering a asymetrical frustrum 
-						layer.fov = symetricalEyeFov[eye];
+						
+						if(ModInit.ui.TestBool)
+							layer.fov = EyeViews[eye].fov; //TODO it is porbable that we cound fudge this if we cannot coherce the engine into rendering a asymetrical frustrum 
+						else
+							layer.fov = symetricalEyeFov[eye];
+
 						layer.subImage.swapchain = eyeSwapchains[eye];
 						layer.subImage.imageRect.extent.width = eyeRenderTargetSizes[eye].X;
 						layer.subImage.imageRect.extent.height = eyeRenderTargetSizes[eye].Y;
+
+						
 						layerProjectionViews[eye] = layer;
 
 						hasEye[eye] = true;
 					}
 
 #pragma warning restore CA2014 // Do not use stackalloc in loops
+
+					XrViewports.Instance.RenderFinished();
 				}
 			}
 			catch (Exception e)
@@ -954,10 +989,13 @@ namespace KSA.XR
 			CheckXRCall(xrLocateViews(session, &viewLocateInfo, &viewState, 2, &viewCount, views));
 			Logger.message("xrLocateViews");
 
+				var sharedSymmetricFov = ComputeSymetricalFov(views[0].fov, views[1].fov);
+				symetricalEyeFov[0] = sharedSymmetricFov;
+				symetricalEyeFov[1] = sharedSymmetricFov;
+
 			for (int i = 0; i < viewCount; ++i)
 			{
 				eyeViews[i] = views[i];
-				symetricalEyeFov[i] = ComputeSymetricalFov(views[i].fov);
 				var view = views[i];
 				var eye = (EyeIndex)i;
 				eyeViewPoses[i] = new XrPosef();
@@ -1151,6 +1189,8 @@ namespace KSA.XR
 
 		public void DestroySession()
 		{
+			ResetRenderingStateTracking();
+
 			if (vkDevice.Handle.VkHandle != 0)
 			{
 				vkDevice.WaitIdle();
