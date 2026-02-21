@@ -17,7 +17,7 @@ namespace KSA.XR
 	internal class XrViewports
 	{
 		private static XrViewports? instance = null;
-		
+
 		//Singletonize me
 		public static XrViewports Instance
 		{
@@ -44,22 +44,22 @@ namespace KSA.XR
 		//State machine transition function
 		public void RenderFinished()
 		{
-			if(currentRenderHackState == RenderHackPasses.NormalGame)
+			if (currentRenderHackState == RenderHackPasses.NormalGame)
 			{
 				currentRenderHackState = RenderHackPasses.XR;
 				currentXREye = OpenXR.EyeIndex.Left;
 				return;
 			}
 
-			if(currentRenderHackState == RenderHackPasses.XR)
+			if (currentRenderHackState == RenderHackPasses.XR)
 			{
-				if(currentXREye == OpenXR.EyeIndex.Left)
+				if (currentXREye == OpenXR.EyeIndex.Left)
 				{
 					currentXREye = OpenXR.EyeIndex.Right;
 					return;
 				}
 
-				if(currentXREye == OpenXR.EyeIndex.Right)
+				if (currentXREye == OpenXR.EyeIndex.Right)
 				{
 					currentRenderHackState = RenderHackPasses.NormalGame;
 					return;
@@ -80,7 +80,7 @@ namespace KSA.XR
 		public void DebugDisplayState()
 		{
 			Logger.message($"RenderHack state {CurrentRenderState}");
-			if(CurrentRenderState == RenderHackPasses.XR)
+			if (CurrentRenderState == RenderHackPasses.XR)
 				Logger.message($"Eye {CurrentXREye}");
 		}
 
@@ -127,7 +127,7 @@ namespace KSA.XR
 			//Apply Tracking
 			__instance.LocalRotation *= dRot;
 			__instance.LocalPosition += __instance.LocalRotation * (dPos);
-			
+
 			//Recompute projection 
 			__instance.UpdateProjection();
 		}
@@ -216,7 +216,7 @@ namespace KSA.XR
 					__instance.NearPlane, __instance.FarPlane);
 
 				vp.projection = projectionMatrix;
-				
+
 				if (!float4x4.Invert(vp.projection, out vpInv.projection))
 				{
 					Logger.error("Patch computed a projection matrix that is non-inversible. Cannot apply it");
@@ -256,10 +256,10 @@ namespace KSA.XR
 			foreach (var instruction in instructions)
 			{
 				if ((instruction.opcode == OpCodes.Call || instruction.opcode == OpCodes.Callvirt) &&
-				    instruction.operand is MethodInfo called &&
-				    called.DeclaringType == typeof(KSA.ScreenspaceRenderer) &&
-				    called.Name == "Render" &&
-				    called.IsGenericMethod)
+					instruction.operand is MethodInfo called &&
+					called.DeclaringType == typeof(KSA.ScreenspaceRenderer) &&
+					called.Name == "Render" &&
+					called.IsGenericMethod)
 				{
 					var replacement = replacementGeneric.MakeGenericMethod(called.GetGenericArguments());
 					instruction.opcode = OpCodes.Call;
@@ -304,6 +304,5 @@ namespace KSA.XR
 			return XrViewports.Instance.CurrentRenderState == XrViewports.RenderHackPasses.NormalGame;
 		}
 	}
-
 }
 
