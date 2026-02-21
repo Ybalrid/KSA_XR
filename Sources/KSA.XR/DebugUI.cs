@@ -15,6 +15,7 @@ namespace KSA.XR
 	internal class ImGuiMenuPatcher
 	{
 
+		static private bool IsInMenuBarWindow = false;
 		//Due to the fact that sub-menus exist, we need to store the list of menu names that have been open, so the EndMenu() hook can know which menu is terminating
 		static Stack<string> MenuNames = new Stack<string>();
 
@@ -51,7 +52,8 @@ namespace KSA.XR
 				if (!__result) // Menu is not open, EndMenu will not be called. This is effectively a closed menu
 					MenuNames.Pop(); // Manually removed from the stack, because ImGuiEndMenuBarPatch.Prefix() will not be called for us
 				else if (callbackAfterBeginMenu != null)
-					callbackAfterBeginMenu();
+					if(IsInMenuBarWindow)
+						callbackAfterBeginMenu();
 			}
 		}
 
@@ -64,9 +66,24 @@ namespace KSA.XR
 			{
 				if (MenuNames.TryPop(out string? MenuName))
 					if (MenuName != null && ActionAddedAtMenuEnd.TryGetValue(MenuName, out Action? callback))
-						callback();
+						if(IsInMenuBarWindow)
+							callback();
 			}
 		}
+		[HarmonyPatch(typeof(Brutal.ImGuiApi.ImGui))]
+		[HarmonyPatch("Begin")]
+		[HarmonyPatch(new[] { typeof(ImString), typeof(ImGuiWindowFlags) })]
+		internal static class ImGuiBeginPatch
+		{
+			public static void Prefix(ImString __0, ImGuiWindowFlags __1)
+			{
+				string name = (string)__0;
+				IsInMenuBarWindow = name == "Menu Bar";
+			}
+		}
+
+
+
 	}
 
 	public class DebugUI
