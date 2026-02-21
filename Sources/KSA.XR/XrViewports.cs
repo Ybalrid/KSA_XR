@@ -236,6 +236,10 @@ namespace KSA.XR
 	[HarmonyPatch("RenderGame")]
 	internal static class ProgramRenderGamePatches
 	{
+		// This patch suppresses fullscreen desktop composite draws during XR passes.
+		// Those XR passes still execute render/game logic for headset images, but we do not
+		// want the expensive fullscreen compositing path to write transient/blank content to
+		// the desktop path. Desktop output is handled separately by RendererPresentFramePatch.
 		[HarmonyTranspiler]
 		static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions)
 		{
@@ -267,6 +271,8 @@ namespace KSA.XR
 
 		static void RenderScreenspaceIfAllowed<T>(KSA.ScreenspaceRenderer renderer, CommandBuffer inCommandBuffer, int frameIndex, T pushConstant) where T : unmanaged
 		{
+			// Skip fullscreen composite when not in NormalGame to avoid rendering the XR
+			// helper passes to the desktop composition target.
 			if (XrViewports.Instance.CurrentRenderState != XrViewports.RenderHackPasses.NormalGame)
 				return;
 
@@ -289,6 +295,58 @@ namespace KSA.XR
 		static bool Prefix()
 		{
 			return XrViewports.Instance.CurrentRenderState == XrViewports.RenderHackPasses.NormalGame;
+		}
+	}
+
+	// This patch is explicitly here to suppress the two blank XR-phase frames that
+	// would otherwise be presented to the game's desktop SurfaceKHR swapchain.
+	// We capture the valid NormalGame composite once, then replay it during XR passes.
+	[HarmonyPatch(typeof(global::Core.Renderer))]
+	[HarmonyPatch("PresentFrame")]
+	internal static class RendererPresentFramePatch
+	{
+		static readonly FieldInfo? FrameResourcesField = AccessTools.Field(typeof(global::Core.Renderer), "_frameResources");
+
+		static void Prefix(global::Core.Renderer __instance)
+		{
+			var xr = ModInit.openxr;
+			if (xr == null || xr.Session.Handle == 0)
+				return;
+
+			if (FrameResourcesField == null)
+				return;
+
+			var frameResources = FrameResourcesField.GetValue(__instance) as Brutal.VulkanApi.Abstractions.FrameResources[];
+			if (frameResources == null || frameResources.Length == 0)
+				return;
+
+			int frameIndex = __instance.FrameIndex;
+			if (frameIndex < 0 || frameIndex >= frameResources.Length)
+				return;
+
+			var currentFrame = frameResources[frameIndex];
+			var extent = __instance.Extent;
+			var size = new int2(extent.Width, extent.Height);
+			var swapchainImage = currentFrame.ColorImage;
+			var colorFormat = __instance.ColorFormat;
+
+			if (XrViewports.Instance.CurrentRenderState == XrViewports.RenderHackPasses.NormalGame)
+			{
+				// Capture the fully composited desktop frame (including UI) right before present.
+				xr.UpdateDesktopCompositeBuffer(
+					swapchainImage,
+					size,
+					colorFormat,
+					VkImageLayout.PresentSrcKHR);
+				return;
+			}
+
+			// XR passes still reach PresentFrame; overwrite the present image with the last
+			// valid desktop composite so the window does not show blank/flickering frames.
+			xr.BlitDesktopCompositeBufferTo(
+				swapchainImage,
+				size,
+				VkImageLayout.PresentSrcKHR);
 		}
 	}
 }

@@ -301,6 +301,12 @@ namespace KSA.XR
 		VkCommandPool copyCommandPool;
 		CommandBuffer copyCommandBuffer;
 		VkFence copyFence;
+		VkImage desktopCompositeBufferImage;
+		VkDeviceMemory desktopCompositeBufferMemory;
+		int2 desktopCompositeBufferSize;
+		VkFormat desktopCompositeBufferFormat;
+		VkImageLayout desktopCompositeBufferLayout = VkImageLayout.Undefined;
+		bool hasDesktopCompositeBuffer = false;
 		Brutal.VulkanApi.Instance? vkInstance;
 		Brutal.VulkanApi.Device? vkDevice;
 		Brutal.VulkanApi.Queue? vkQueue;
@@ -1195,6 +1201,323 @@ namespace KSA.XR
 			vkDevice.WaitForFences(fencesToReset, true, (nint)(-1));
 		}
 
+		public bool EnsureDesktopCompositeBuffer(int2 size, VkFormat format)
+		{
+			try
+			{
+				if (vkDevice == null)
+					return false;
+
+				if (hasDesktopCompositeBuffer &&
+					desktopCompositeBufferImage.VkHandle != 0 &&
+					desktopCompositeBufferSize.X == size.X &&
+					desktopCompositeBufferSize.Y == size.Y &&
+					desktopCompositeBufferFormat == format)
+				{
+					return true;
+				}
+
+				DestroyDesktopCompositeBuffer();
+
+				var imageCreateInfo = new VkImageCreateInfo();
+				imageCreateInfo.ImageType = VkImageType._2D;
+				imageCreateInfo.Format = format;
+				imageCreateInfo.Extent = new VkExtent3D(size.X, size.Y, 1);
+				imageCreateInfo.MipLevels = 1;
+				imageCreateInfo.ArrayLayers = 1;
+				imageCreateInfo.Samples = (VkSampleCountFlags)1;
+				imageCreateInfo.Tiling = VkImageTiling.Optimal;
+				imageCreateInfo.Usage = Brutal.VulkanApi.VkImageUsageFlags.TransferSrcBit | Brutal.VulkanApi.VkImageUsageFlags.TransferDstBit;
+				imageCreateInfo.SharingMode = VkSharingMode.Exclusive;
+				imageCreateInfo.InitialLayout = VkImageLayout.Undefined;
+				desktopCompositeBufferImage = VkDeviceExtensions.CreateImage(vkDevice, ref imageCreateInfo, null);
+
+				desktopCompositeBufferMemory = DeviceExtensions.AllocateMemory(
+					vkDevice,
+					vkDevice.PhysicalDevice,
+					desktopCompositeBufferImage,
+					VkMemoryPropertyFlags.DeviceLocalBit,
+					null);
+
+				VkDeviceExtensions.BindImageMemory(vkDevice, desktopCompositeBufferImage, desktopCompositeBufferMemory, (Brutal.ByteSize64) 0);
+
+				desktopCompositeBufferSize = size;
+				desktopCompositeBufferFormat = format;
+				desktopCompositeBufferLayout = VkImageLayout.Undefined;
+				hasDesktopCompositeBuffer = true;
+				Logger.message($"Allocated desktop composite buffer {size.X}x{size.Y}, format {format}");
+				return true;
+			}
+			catch (Exception e)
+			{
+				Logger.error($"Failed to create desktop composite buffer: {e}");
+				DestroyDesktopCompositeBuffer();
+				return false;
+			}
+		}
+
+		private bool HasValidCopyContext()
+		{
+			if (vkDevice == null || vkQueue == null)
+				return false;
+
+			if (copyCommandPool.VkHandle == 0 || copyCommandBuffer.VkHandle == 0 || copyFence.VkHandle == 0)
+			{
+				Logger.warning("Desktop composite buffer helper called before copy command resources were initialized.");
+				return false;
+			}
+
+			return true;
+		}
+
+		public bool UpdateDesktopCompositeBuffer(VkImage sourceImage, int2 sourceSize, VkFormat sourceFormat, VkImageLayout sourceCurrentLayout = VkImageLayout.ColorAttachmentOptimal)
+		{
+			if (!EnsureDesktopCompositeBuffer(sourceSize, sourceFormat))
+				return false;
+
+			if (!HasValidCopyContext())
+				return false;
+
+			var sourceToTransferBarrier = new VkImageMemoryBarrier();
+			sourceToTransferBarrier.SrcAccessMask = VkAccessFlags.ColorAttachmentWriteBit;
+			sourceToTransferBarrier.DstAccessMask = VkAccessFlags.TransferReadBit;
+			sourceToTransferBarrier.OldLayout = sourceCurrentLayout;
+			sourceToTransferBarrier.NewLayout = VkImageLayout.TransferSrcOptimal;
+			sourceToTransferBarrier.SrcQueueFamilyIndex = -1;
+			sourceToTransferBarrier.DstQueueFamilyIndex = -1;
+			sourceToTransferBarrier.Image = sourceImage;
+			sourceToTransferBarrier.SubresourceRange.AspectMask = VkImageAspectFlags.ColorBit;
+			sourceToTransferBarrier.SubresourceRange.BaseMipLevel = 0;
+			sourceToTransferBarrier.SubresourceRange.LevelCount = 1;
+			sourceToTransferBarrier.SubresourceRange.BaseArrayLayer = 0;
+			sourceToTransferBarrier.SubresourceRange.LayerCount = 1;
+
+			var sourceBackBarrier = new VkImageMemoryBarrier();
+			sourceBackBarrier.SrcAccessMask = VkAccessFlags.TransferReadBit;
+			sourceBackBarrier.DstAccessMask = VkAccessFlags.ColorAttachmentWriteBit;
+			sourceBackBarrier.OldLayout = VkImageLayout.TransferSrcOptimal;
+			sourceBackBarrier.NewLayout = sourceCurrentLayout;
+			sourceBackBarrier.SrcQueueFamilyIndex = -1;
+			sourceBackBarrier.DstQueueFamilyIndex = -1;
+			sourceBackBarrier.Image = sourceImage;
+			sourceBackBarrier.SubresourceRange.AspectMask = VkImageAspectFlags.ColorBit;
+			sourceBackBarrier.SubresourceRange.BaseMipLevel = 0;
+			sourceBackBarrier.SubresourceRange.LevelCount = 1;
+			sourceBackBarrier.SubresourceRange.BaseArrayLayer = 0;
+			sourceBackBarrier.SubresourceRange.LayerCount = 1;
+
+			var holdToTransferDst = new VkImageMemoryBarrier();
+			holdToTransferDst.SrcAccessMask = VkAccessFlags.None;
+			holdToTransferDst.DstAccessMask = VkAccessFlags.TransferWriteBit;
+			holdToTransferDst.OldLayout = desktopCompositeBufferLayout;
+			holdToTransferDst.NewLayout = VkImageLayout.TransferDstOptimal;
+			holdToTransferDst.SrcQueueFamilyIndex = -1;
+			holdToTransferDst.DstQueueFamilyIndex = -1;
+			holdToTransferDst.Image = desktopCompositeBufferImage;
+			holdToTransferDst.SubresourceRange.AspectMask = VkImageAspectFlags.ColorBit;
+			holdToTransferDst.SubresourceRange.BaseMipLevel = 0;
+			holdToTransferDst.SubresourceRange.LevelCount = 1;
+			holdToTransferDst.SubresourceRange.BaseArrayLayer = 0;
+			holdToTransferDst.SubresourceRange.LayerCount = 1;
+
+			var holdToTransferSrc = new VkImageMemoryBarrier();
+			holdToTransferSrc.SrcAccessMask = VkAccessFlags.TransferWriteBit;
+			holdToTransferSrc.DstAccessMask = VkAccessFlags.TransferReadBit;
+			holdToTransferSrc.OldLayout = VkImageLayout.TransferDstOptimal;
+			holdToTransferSrc.NewLayout = VkImageLayout.TransferSrcOptimal;
+			holdToTransferSrc.SrcQueueFamilyIndex = -1;
+			holdToTransferSrc.DstQueueFamilyIndex = -1;
+			holdToTransferSrc.Image = desktopCompositeBufferImage;
+			holdToTransferSrc.SubresourceRange.AspectMask = VkImageAspectFlags.ColorBit;
+			holdToTransferSrc.SubresourceRange.BaseMipLevel = 0;
+			holdToTransferSrc.SubresourceRange.LevelCount = 1;
+			holdToTransferSrc.SubresourceRange.BaseArrayLayer = 0;
+			holdToTransferSrc.SubresourceRange.LayerCount = 1;
+
+			var blitRegion = new VkImageBlit();
+			blitRegion.SrcSubresource.AspectMask = VkImageAspectFlags.ColorBit;
+			blitRegion.SrcSubresource.MipLevel = 0;
+			blitRegion.SrcSubresource.BaseArrayLayer = 0;
+			blitRegion.SrcSubresource.LayerCount = 1;
+			blitRegion.DstSubresource.AspectMask = VkImageAspectFlags.ColorBit;
+			blitRegion.DstSubresource.MipLevel = 0;
+			blitRegion.DstSubresource.BaseArrayLayer = 0;
+			blitRegion.DstSubresource.LayerCount = 1;
+			blitRegion.SrcOffsets[0] = new VkOffset3D();
+			blitRegion.SrcOffsets[1] = new VkOffset3D(sourceSize.X, sourceSize.Y, 1);
+			blitRegion.DstOffsets[0] = new VkOffset3D();
+			blitRegion.DstOffsets[1] = new VkOffset3D(desktopCompositeBufferSize.X, desktopCompositeBufferSize.Y, 1);
+
+			Span<VkFence> fencesToReset = stackalloc VkFence[1];
+			fencesToReset[0] = copyFence;
+			vkDevice.ResetFences(fencesToReset);
+			copyCommandBuffer.Reset(VkCommandBufferResetFlags.None);
+
+			var beginInfo = new VkCommandBufferBeginInfo();
+			beginInfo.Flags = VkCommandBufferUsageFlags.OneTimeSubmitBit;
+			copyCommandBuffer.Begin(beginInfo);
+
+			Span<VkImageMemoryBarrier> imageBarriers = stackalloc VkImageMemoryBarrier[1];
+			imageBarriers[0] = sourceToTransferBarrier;
+			copyCommandBuffer.PipelineBarrier(VkPipelineStageFlags.ColorAttachmentOutputBit, VkPipelineStageFlags.TransferBit, VkDependencyFlags.None, default, default, imageBarriers);
+			imageBarriers[0] = holdToTransferDst;
+			copyCommandBuffer.PipelineBarrier(VkPipelineStageFlags.TopOfPipeBit, VkPipelineStageFlags.TransferBit, VkDependencyFlags.None, default, default, imageBarriers);
+
+			Span<VkImageBlit> blitRegions = stackalloc VkImageBlit[1];
+			blitRegions[0] = blitRegion;
+			copyCommandBuffer.BlitImage(sourceImage, VkImageLayout.TransferSrcOptimal, desktopCompositeBufferImage, VkImageLayout.TransferDstOptimal, blitRegions, VkFilter.Nearest);
+
+			imageBarriers[0] = sourceBackBarrier;
+			copyCommandBuffer.PipelineBarrier(VkPipelineStageFlags.TransferBit, VkPipelineStageFlags.ColorAttachmentOutputBit, VkDependencyFlags.None, default, default, imageBarriers);
+			imageBarriers[0] = holdToTransferSrc;
+			copyCommandBuffer.PipelineBarrier(VkPipelineStageFlags.TransferBit, VkPipelineStageFlags.TransferBit, VkDependencyFlags.None, default, default, imageBarriers);
+
+			copyCommandBuffer.End();
+
+			unsafe
+			{
+				var submitInfo = new VkSubmitInfo();
+				var bufferArray = stackalloc VkCommandBuffer[1];
+				bufferArray[0] = copyCommandBuffer.Handle;
+				submitInfo.CommandBuffers = bufferArray;
+				submitInfo.CommandBufferCount = 1;
+				Span<VkSubmitInfo> submitInfos = stackalloc VkSubmitInfo[1];
+				submitInfos[0] = submitInfo;
+				vkQueue.Submit(submitInfos, copyFence);
+			}
+			vkDevice.WaitForFences(fencesToReset, true, (nint)(-1));
+
+			desktopCompositeBufferLayout = VkImageLayout.TransferSrcOptimal;
+			return true;
+		}
+
+		public bool BlitDesktopCompositeBufferTo(VkImage destinationImage, int2 destinationSize, VkImageLayout destinationCurrentLayout = VkImageLayout.ColorAttachmentOptimal)
+		{
+			if (!hasDesktopCompositeBuffer || desktopCompositeBufferImage.VkHandle == 0)
+				return false;
+			if (!HasValidCopyContext())
+				return false;
+
+			var holdToTransferSrc = new VkImageMemoryBarrier();
+			holdToTransferSrc.SrcAccessMask = VkAccessFlags.None;
+			holdToTransferSrc.DstAccessMask = VkAccessFlags.TransferReadBit;
+			holdToTransferSrc.OldLayout = desktopCompositeBufferLayout;
+			holdToTransferSrc.NewLayout = VkImageLayout.TransferSrcOptimal;
+			holdToTransferSrc.SrcQueueFamilyIndex = -1;
+			holdToTransferSrc.DstQueueFamilyIndex = -1;
+			holdToTransferSrc.Image = desktopCompositeBufferImage;
+			holdToTransferSrc.SubresourceRange.AspectMask = VkImageAspectFlags.ColorBit;
+			holdToTransferSrc.SubresourceRange.BaseMipLevel = 0;
+			holdToTransferSrc.SubresourceRange.LevelCount = 1;
+			holdToTransferSrc.SubresourceRange.BaseArrayLayer = 0;
+			holdToTransferSrc.SubresourceRange.LayerCount = 1;
+
+			var destToTransferBarrier = new VkImageMemoryBarrier();
+			destToTransferBarrier.SrcAccessMask = VkAccessFlags.ColorAttachmentWriteBit;
+			destToTransferBarrier.DstAccessMask = VkAccessFlags.TransferWriteBit;
+			destToTransferBarrier.OldLayout = destinationCurrentLayout;
+			destToTransferBarrier.NewLayout = VkImageLayout.TransferDstOptimal;
+			destToTransferBarrier.SrcQueueFamilyIndex = -1;
+			destToTransferBarrier.DstQueueFamilyIndex = -1;
+			destToTransferBarrier.Image = destinationImage;
+			destToTransferBarrier.SubresourceRange.AspectMask = VkImageAspectFlags.ColorBit;
+			destToTransferBarrier.SubresourceRange.BaseMipLevel = 0;
+			destToTransferBarrier.SubresourceRange.LevelCount = 1;
+			destToTransferBarrier.SubresourceRange.BaseArrayLayer = 0;
+			destToTransferBarrier.SubresourceRange.LayerCount = 1;
+
+			var destBackBarrier = new VkImageMemoryBarrier();
+			destBackBarrier.SrcAccessMask = VkAccessFlags.TransferWriteBit;
+			destBackBarrier.DstAccessMask = VkAccessFlags.ColorAttachmentWriteBit;
+			destBackBarrier.OldLayout = VkImageLayout.TransferDstOptimal;
+			destBackBarrier.NewLayout = destinationCurrentLayout;
+			destBackBarrier.SrcQueueFamilyIndex = -1;
+			destBackBarrier.DstQueueFamilyIndex = -1;
+			destBackBarrier.Image = destinationImage;
+			destBackBarrier.SubresourceRange.AspectMask = VkImageAspectFlags.ColorBit;
+			destBackBarrier.SubresourceRange.BaseMipLevel = 0;
+			destBackBarrier.SubresourceRange.LevelCount = 1;
+			destBackBarrier.SubresourceRange.BaseArrayLayer = 0;
+			destBackBarrier.SubresourceRange.LayerCount = 1;
+
+			var blitRegion = new VkImageBlit();
+			blitRegion.SrcSubresource.AspectMask = VkImageAspectFlags.ColorBit;
+			blitRegion.SrcSubresource.MipLevel = 0;
+			blitRegion.SrcSubresource.BaseArrayLayer = 0;
+			blitRegion.SrcSubresource.LayerCount = 1;
+			blitRegion.DstSubresource.AspectMask = VkImageAspectFlags.ColorBit;
+			blitRegion.DstSubresource.MipLevel = 0;
+			blitRegion.DstSubresource.BaseArrayLayer = 0;
+			blitRegion.DstSubresource.LayerCount = 1;
+			blitRegion.SrcOffsets[0] = new VkOffset3D();
+			blitRegion.SrcOffsets[1] = new VkOffset3D(desktopCompositeBufferSize.X, desktopCompositeBufferSize.Y, 1);
+			blitRegion.DstOffsets[0] = new VkOffset3D();
+			blitRegion.DstOffsets[1] = new VkOffset3D(destinationSize.X, destinationSize.Y, 1);
+
+			Span<VkFence> fencesToReset = stackalloc VkFence[1];
+			fencesToReset[0] = copyFence;
+			vkDevice.ResetFences(fencesToReset);
+			copyCommandBuffer.Reset(VkCommandBufferResetFlags.None);
+
+			var beginInfo = new VkCommandBufferBeginInfo();
+			beginInfo.Flags = VkCommandBufferUsageFlags.OneTimeSubmitBit;
+			copyCommandBuffer.Begin(beginInfo);
+
+			Span<VkImageMemoryBarrier> imageBarriers = stackalloc VkImageMemoryBarrier[1];
+			imageBarriers[0] = holdToTransferSrc;
+			copyCommandBuffer.PipelineBarrier(VkPipelineStageFlags.TopOfPipeBit, VkPipelineStageFlags.TransferBit, VkDependencyFlags.None, default, default, imageBarriers);
+			imageBarriers[0] = destToTransferBarrier;
+			copyCommandBuffer.PipelineBarrier(VkPipelineStageFlags.ColorAttachmentOutputBit, VkPipelineStageFlags.TransferBit, VkDependencyFlags.None, default, default, imageBarriers);
+
+			Span<VkImageBlit> blitRegions = stackalloc VkImageBlit[1];
+			blitRegions[0] = blitRegion;
+			copyCommandBuffer.BlitImage(desktopCompositeBufferImage, VkImageLayout.TransferSrcOptimal, destinationImage, VkImageLayout.TransferDstOptimal, blitRegions, VkFilter.Nearest);
+
+			imageBarriers[0] = destBackBarrier;
+			copyCommandBuffer.PipelineBarrier(VkPipelineStageFlags.TransferBit, VkPipelineStageFlags.ColorAttachmentOutputBit, VkDependencyFlags.None, default, default, imageBarriers);
+
+			copyCommandBuffer.End();
+
+			unsafe
+			{
+				var submitInfo = new VkSubmitInfo();
+				var bufferArray = stackalloc VkCommandBuffer[1];
+				bufferArray[0] = copyCommandBuffer.Handle;
+				submitInfo.CommandBuffers = bufferArray;
+				submitInfo.CommandBufferCount = 1;
+				Span<VkSubmitInfo> submitInfos = stackalloc VkSubmitInfo[1];
+				submitInfos[0] = submitInfo;
+				vkQueue.Submit(submitInfos, copyFence);
+			}
+			vkDevice.WaitForFences(fencesToReset, true, (nint)(-1));
+
+			desktopCompositeBufferLayout = VkImageLayout.TransferSrcOptimal;
+			return true;
+		}
+
+		private void DestroyDesktopCompositeBuffer()
+		{
+			if (vkDevice == null)
+				return;
+
+			if (desktopCompositeBufferImage.VkHandle != 0)
+			{
+				VkDeviceExtensions.DestroyImage(vkDevice, desktopCompositeBufferImage, null);
+				desktopCompositeBufferImage = new VkImage();
+			}
+
+			if (desktopCompositeBufferMemory.VkHandle != 0)
+			{
+				VkDeviceExtensions.FreeMemory(vkDevice, desktopCompositeBufferMemory, null);
+				desktopCompositeBufferMemory = new VkDeviceMemory();
+			}
+
+			hasDesktopCompositeBuffer = false;
+			desktopCompositeBufferLayout = VkImageLayout.Undefined;
+			desktopCompositeBufferSize = default;
+			desktopCompositeBufferFormat = default;
+		}
+
 		public void DestroySession()
 		{
 			ResetRenderingStateTracking();
@@ -1202,6 +1525,7 @@ namespace KSA.XR
 			if (vkDevice.Handle.VkHandle != 0)
 			{
 				vkDevice.WaitIdle();
+				DestroyDesktopCompositeBuffer();
 				//Cleanup all our Vulkan objects, if allocated
 				if (copyCommandBuffer.VkHandle != 0)
 				{
