@@ -84,15 +84,6 @@ namespace KSA.XR
 				Logger.message($"Eye {CurrentXREye}");
 		}
 
-
-		static public int swapeye(int eye)
-		{
-			if (eye == 0)
-				return 1;
-			else
-				return 0;
-		}
-
 	}
 
 	[HarmonyPatch(typeof(KSA.Camera))]
@@ -122,7 +113,6 @@ namespace KSA.XR
 			var dRot = new doubleQuat(rot.x, rot.y, rot.z, rot.w);
 			var pos = pose.position;
 			var dPos = new double3(pos.x, pos.y, pos.z);
-
 
 			//Apply Tracking
 			__instance.LocalRotation *= dRot;
@@ -183,9 +173,6 @@ namespace KSA.XR
 
 			return m;
 		}
-
-
-
 		static void Postfix(KSA.Camera __instance)
 		{
 			if (XrViewports.Instance.CurrentRenderState == XrViewports.RenderHackPasses.NormalGame)
