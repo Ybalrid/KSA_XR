@@ -236,6 +236,8 @@ namespace KSA.XR
 		static List<string> optionalOpenXRExtensions = new List<string>
 			{
 				XR_EXT_HAND_INTERACTION_EXTENSION_NAME,
+				XR_EXT_UUID_EXTENSION_NAME,
+				XR_EXT_RENDER_MODEL_EXTENSION_NAME
 			};
 
 
