@@ -10,7 +10,6 @@ namespace KSA.XR
 	/// </summary>
 	/// <remarks>
 	/// A registered callback might be called multiple times, if multiple menus are present.
-	/// TODO could hook ImGui.Begin() and ImGui.End() to also know the name of a Window to solve this eventual problem.
 	/// </remarks>
 	internal class ImGuiMenuPatcher
 	{
@@ -58,6 +57,7 @@ namespace KSA.XR
 		}
 
 
+		//In case a menu callback should happen at the end of the current menu (found by poping it's name of the name stack) call it
 		[HarmonyPatch(typeof(Brutal.ImGuiApi.ImGui))]
 		[HarmonyPatch("EndMenu")]
 		internal static class ImGuiEndMenuBarPatch
@@ -70,6 +70,9 @@ namespace KSA.XR
 							callback();
 			}
 		}
+
+		//Note: There are multiple overloads of this method.
+		//But the one that interest us is only this one
 		[HarmonyPatch(typeof(Brutal.ImGuiApi.ImGui))]
 		[HarmonyPatch("Begin")]
 		[HarmonyPatch(new[] { typeof(ImString), typeof(ImGuiWindowFlags) })]
@@ -81,9 +84,6 @@ namespace KSA.XR
 				IsInMenuBarWindow = name == "Menu Bar";
 			}
 		}
-
-
-
 	}
 
 	public class DebugUI
