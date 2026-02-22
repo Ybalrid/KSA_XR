@@ -391,29 +391,14 @@ namespace KSA.XR
 			openXREventThread.Start();
 		}
 
-		private unsafe void HandleXREvents()
+		private void HandleXREvents()
 		{
-			HashSet<XrResult> pollEventAllowedResults = new HashSet<XrResult>() { XrResult.XR_EVENT_UNAVAILABLE };
 			while (openXREventThreadRunning)
 			{
 				try
 				{
-					var eventBuffer = new XrEventDataBuffer();
-					eventBuffer.type = XrStructureType.XR_TYPE_EVENT_DATA_BUFFER;
-					if (instance.Handle != 0 &&
-						XrResult.XR_SUCCESS == CheckXRCall(xrPollEvent(instance, &eventBuffer), pollEventAllowedResults))
-					{
-						switch (eventBuffer.type)
-						{
-							case XrStructureType.XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED:
-								var sessionStateChanged = *(XrEventDataSessionStateChanged*)&eventBuffer;
-								Logger.message($"XR Session {sessionStateChanged.session.Handle} changed state to {sessionStateChanged.state}");
-								break;
-							default:
-								Logger.warning($"XR Event of type {eventBuffer.type} currently unhandled");
-								break;
-						}
-					}
+					if (instance.Handle != 0)
+						HandleAllPendingXREvents();
 				}
 				catch (Exception e)
 				{
@@ -422,6 +407,29 @@ namespace KSA.XR
 
 				Thread.Sleep(1);
 			}
+		}
+
+		HashSet<XrResult> pollEventAllowedResults = new HashSet<XrResult>() { XrResult.XR_EVENT_UNAVAILABLE };
+		private unsafe void HandleAllPendingXREvents()
+		{
+			XrResult status = XrResult.XR_SUCCESS;
+			do
+			{
+				var eventBuffer = new XrEventDataBuffer();
+				eventBuffer.type = XrStructureType.XR_TYPE_EVENT_DATA_BUFFER;
+				status = CheckXRCall(xrPollEvent(instance, &eventBuffer), pollEventAllowedResults);
+				if(status == XrResult.XR_SUCCESS) switch (eventBuffer.type)
+				{
+					case XrStructureType.XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED:
+						var sessionStateChanged = *(XrEventDataSessionStateChanged*)&eventBuffer;
+						Logger.message($"XR Session {sessionStateChanged.session.Handle} changed state to {sessionStateChanged.state}");
+						break;
+
+					default:
+						Logger.warning($"XR Event of type {eventBuffer.type} currently unhandled");
+						break;
+				}
+			} while (status == XrResult.XR_SUCCESS);
 		}
 
 		private unsafe void InstallDebugMessenger()
@@ -904,7 +912,6 @@ namespace KSA.XR
 
 							//This is a placeholder so that we have *something* to display
 							BlitMainViewIntoXrSwapchainImage(eyeSwapchainVkImage, eyeSwapchainImageSize);
-							Logger.message($"success blit of image for eye {eye}");
 						}
 						else
 						{
@@ -954,12 +961,10 @@ namespace KSA.XR
 			var waitFrameInfo = new XrFrameWaitInfo();
 			waitFrameInfo.type = XrStructureType.XR_TYPE_FRAME_WAIT_INFO;
 			CheckXRCall(xrWaitFrame(session, &waitFrameInfo, &frameState));
-			Logger.message("xrWaitFrame");
 
 			var frameBeginInfo = new XrFrameBeginInfo();
 			frameBeginInfo.type = XrStructureType.XR_TYPE_FRAME_BEGIN_INFO;
 			CheckXRCall(xrBeginFrame(session, &frameBeginInfo));
-			Logger.message("xrBeginFrame");
 			return frameState;
 		}
 
@@ -985,7 +990,6 @@ namespace KSA.XR
 			frameEndInfo.environmentBlendMode = XrEnvironmentBlendMode.XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
 			frameEndInfo.displayTime = displayTime;
 			CheckXRCall(xrEndFrame(session, &frameEndInfo));
-			Logger.message("xrEndFrame");
 		}
 
 		private unsafe void LocateViews(long displayTime)
@@ -1003,7 +1007,6 @@ namespace KSA.XR
 			viewLocateInfo.space = applicationLocalSpace;
 			viewLocateInfo.viewConfigurationType = XrViewConfigurationType.XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
 			CheckXRCall(xrLocateViews(session, &viewLocateInfo, &viewState, 2, &viewCount, views));
-			Logger.message("xrLocateViews");
 
 				var sharedSymmetricFov = ComputeSymetricalFov(views[0].fov, views[1].fov);
 				symetricalEyeFov[0] = sharedSymmetricFov;
