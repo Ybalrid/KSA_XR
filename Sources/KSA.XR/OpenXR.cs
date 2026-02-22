@@ -908,6 +908,9 @@ namespace KSA.XR
 							 * The main winodw is such Viewport.
 							 * 
 							 * As a POC the following obtains backbuffer of main game viewport, and just blit it as-is onto the OpenXR swapchain.
+							 * 
+							 * On top of that, we are instrumenting the renderer with a state machine to render first a normal frame of the game, then a frame for
+							 * each of the eye views of the OpenXR system.
 							 */
 
 							//This is a placeholder so that we have *something* to display
