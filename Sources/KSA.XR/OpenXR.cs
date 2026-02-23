@@ -4,13 +4,39 @@ using Brutal.VulkanApi.Abstractions;
 using Evergine.Bindings.OpenXR;
 using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Text;
 using static Evergine.Bindings.OpenXR.OpenXRNative;
 
 namespace KSA.XR
 {
 	public class OpenXR
 	{
+		public class EnabledFeatures
+		{
+			bool canLoadControllerModel;
+			bool canUseHandInteractions;
+
+			public bool CanLoadControllerModels => canLoadControllerModel;
+			public bool CanUseHandInteractions => canUseHandInteractions;
+
+			public EnabledFeatures(bool controllerModels, bool handInteractions)
+			{
+				canLoadControllerModel = controllerModels;
+				canUseHandInteractions = handInteractions;
+			}
+		}
+
+		EnabledFeatures features;
+		public EnabledFeatures Features => features;
+
+
 		public enum EyeIndex
+		{
+			Left = 0,
+			Right = 1,
+		};
+
+		public enum HandIndex
 		{
 			Left = 0,
 			Right = 1,
@@ -237,7 +263,9 @@ namespace KSA.XR
 			{
 				XR_EXT_HAND_INTERACTION_EXTENSION_NAME,
 				XR_EXT_UUID_EXTENSION_NAME,
-				XR_EXT_RENDER_MODEL_EXTENSION_NAME
+				XR_EXT_RENDER_MODEL_EXTENSION_NAME,
+				XR_EXT_INTERACTION_RENDER_MODEL_EXTENSION_NAME,
+				XR_KHR_GENERIC_CONTROLLER_EXTENSION_NAME,
 			};
 
 
@@ -375,7 +403,8 @@ namespace KSA.XR
 				CreateInstance();
 				GetHMDSystem();
 				EnumerateViews();
-				StartOpenXREventThread();
+				CheckOptionalExtensionsEnablement();
+				SetupActions();
 			}
 			catch (Exception e)
 			{
@@ -383,6 +412,76 @@ namespace KSA.XR
 				Logger.error(e.ToString());
 			}
 		}
+
+		ulong[] handPaths = new ulong[2];
+		XrAction handPoseAction;
+		XrActionSet actionSet;
+
+		XrSpace[] handActionSpaces = new XrSpace[2];
+		XrPosef[] handGripPose = new XrPosef[2];
+
+		public XrPosef[] MostRecentHandPoses => handGripPose;
+
+		//XrPath
+		ulong profile;
+		ulong leftHandPose;
+		ulong rightHandPose;
+
+
+		private unsafe void SetupActions()
+		{
+			handPaths[0] = xrPath("/user/hand/left");
+			handPaths[1] = xrPath("/user/hand/right");
+
+			var actionSet = new XrActionSet();
+			var actionSetCreateInfo = new XrActionSetCreateInfo();
+			actionSetCreateInfo.type = XrStructureType.XR_TYPE_ACTION_SET_CREATE_INFO;
+			WriteStringToBuffer("hands", actionSetCreateInfo.actionSetName);
+			WriteStringToBuffer("Hands", actionSetCreateInfo.localizedActionSetName);
+			CheckXRCall(xrCreateActionSet(instance, &actionSetCreateInfo, &actionSet));
+			this.actionSet = actionSet;
+
+			var handPoseAction = new XrAction();
+			var actionCreateInfo = new XrActionCreateInfo();
+			actionCreateInfo.type = XrStructureType.XR_TYPE_ACTION_CREATE_INFO;
+			WriteStringToBuffer("hand_pose", actionCreateInfo.actionName);
+			WriteStringToBuffer("Hand pose", actionCreateInfo.localizedActionName);
+			actionCreateInfo.countSubactionPaths = 2;
+			actionCreateInfo.actionType = XrActionType.XR_ACTION_TYPE_POSE_INPUT;
+			fixed (ulong* handPathsPtr = handPaths)
+			{
+				actionCreateInfo.subactionPaths = handPathsPtr;
+				CheckXRCall(xrCreateAction(actionSet, &actionCreateInfo, &handPoseAction));
+			}
+			this.handPoseAction = handPoseAction;
+
+			profile = xrPath("/interaction_profiles/khr/simple_controller");
+			leftHandPose = xrPath("/user/hand/left/input/grip/pose");
+			rightHandPose = xrPath("/user/hand/right/input/grip/pose");
+
+			var bindings = stackalloc XrActionSuggestedBinding[2];
+			bindings[0].action = handPoseAction;
+			bindings[0].binding = leftHandPose;
+			bindings[1].action = handPoseAction;
+			bindings[1].binding = rightHandPose;
+
+			var suggested = new XrInteractionProfileSuggestedBinding();
+			suggested.type = XrStructureType.XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING;
+			suggested.interactionProfile = profile;
+			suggested.countSuggestedBindings = 2;
+			suggested.suggestedBindings = bindings;
+			CheckXRCall(xrSuggestInteractionProfileBindings(instance, &suggested));
+		}
+
+
+		private void CheckOptionalExtensionsEnablement()
+		{
+			bool hasHandInteraction = enabledOptionalExtensions[XR_EXT_HAND_INTERACTION_EXTENSION_NAME];
+			bool hasControllerModels = enabledOptionalExtensions[XR_EXT_RENDER_MODEL_EXTENSION_NAME];
+
+			features = new EnabledFeatures(hasControllerModels, hasHandInteraction);
+		}
+
 
 		private void StartOpenXREventThread()
 		{
@@ -410,6 +509,10 @@ namespace KSA.XR
 		}
 
 		HashSet<XrResult> pollEventAllowedResults = new HashSet<XrResult>() { XrResult.XR_EVENT_UNAVAILABLE };
+
+		XrSessionState currentSessionState;
+
+
 		private unsafe void HandleAllPendingXREvents()
 		{
 			XrResult status = XrResult.XR_SUCCESS;
@@ -423,7 +526,14 @@ namespace KSA.XR
 					case XrStructureType.XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED:
 						var sessionStateChanged = *(XrEventDataSessionStateChanged*)&eventBuffer;
 						Logger.message($"XR Session {sessionStateChanged.session.Handle} changed state to {sessionStateChanged.state}");
+						currentSessionState = sessionStateChanged.state;
 						break;
+
+						case XrStructureType.XR_TYPE_EVENT_DATA_INTERACTION_RENDER_MODELS_CHANGED_EXT:
+							var interactinRenderModelsChanged = *(XrEventDataInteractionRenderModelsChangedEXT*)&eventBuffer;
+							Logger.message($"Interaction Render Models have changed.");
+							LoadControllerModels();
+							break;
 
 					default:
 						Logger.warning($"XR Event of type {eventBuffer.type} currently unhandled");
@@ -794,6 +904,9 @@ namespace KSA.XR
 
 				var eyeRenderTargetSize = eyeRenderTargetSizes[0];
 
+				AttachActions();
+
+
 				return true;
 			}
 
@@ -801,6 +914,122 @@ namespace KSA.XR
 			{
 				Logger.error(e.ToString());
 				return false;
+			}
+		}
+
+		private unsafe ulong xrPath(string str)
+		{
+			ulong path;
+			var strBytes = Encoding.ASCII.GetBytes(str + '\0');
+			fixed (byte* strBytesPtr = strBytes)
+				CheckXRCall(xrStringToPath(instance, strBytesPtr, &path));
+			return path;
+		}
+
+		private unsafe string? pathToString(ulong path)
+		{
+			uint buffSize = 0;
+			CheckXRCall(xrPathToString(instance, path, buffSize, &buffSize, null));
+			var buffer = stackalloc byte[(int)buffSize];
+			CheckXRCall(xrPathToString(instance, path, buffSize, &buffSize, buffer));
+			return PtrToString(buffer);
+		}
+
+		private unsafe void AttachActions()
+		{
+			var sessionActionSetAttachInfo = new XrSessionActionSetsAttachInfo();
+			sessionActionSetAttachInfo.type = XrStructureType.XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO;
+			var actionSets = stackalloc XrActionSet[1];
+			actionSets[0] = actionSet;
+			sessionActionSetAttachInfo.countActionSets = 1;
+			sessionActionSetAttachInfo.actionSets = actionSets;
+			CheckXRCall(xrAttachSessionActionSets(session, &sessionActionSetAttachInfo));
+
+			var handActionSpaces = stackalloc XrSpace[2];
+
+			for (int i = 0; i < 2; ++i)
+			{
+				var actionSpaceCreateInfo = new XrActionSpaceCreateInfo();
+				actionSpaceCreateInfo.type = XrStructureType.XR_TYPE_ACTION_SPACE_CREATE_INFO;
+				actionSpaceCreateInfo.action = handPoseAction;
+				actionSpaceCreateInfo.subactionPath = handPaths[i];
+				actionSpaceCreateInfo.poseInActionSpace.orientation.w = 1;
+				CheckXRCall(xrCreateActionSpace(session, &actionSpaceCreateInfo, &handActionSpaces[i]));
+				this.handActionSpaces[i] = handActionSpaces[i];
+			}
+		}
+
+		HashSet<XrResult> allowedSyncAtionReturnCodes = new HashSet<XrResult>
+		{
+			XrResult.XR_SESSION_NOT_FOCUSED
+		};
+		private unsafe void SyncActions()
+		{
+			var activeActionSet = new XrActiveActionSet();
+			activeActionSet.actionSet = actionSet;
+			
+			var actionsSyncInfo = new XrActionsSyncInfo();
+			actionsSyncInfo.type = XrStructureType.XR_TYPE_ACTIONS_SYNC_INFO;
+			actionsSyncInfo.activeActionSets = &activeActionSet;
+			actionsSyncInfo.countActiveActionSets = 1;
+			var result = CheckXRCall(xrSyncActions(session, &actionsSyncInfo), allowedSyncAtionReturnCodes);
+			if (result == XrResult.XR_SESSION_NOT_FOCUSED)
+				Logger.warning("Attempting to sync action on unfocused session.");
+		}
+
+		private unsafe void LoadControllerModels()
+		{
+			try
+			{
+				uint interactinModelIdCount = 0;
+				var interactionRenderModelIdsEnumerateInfo = new XrInteractionRenderModelIdsEnumerateInfoEXT();
+				interactionRenderModelIdsEnumerateInfo.type = XrStructureType.XR_TYPE_INTERACTION_RENDER_MODEL_IDS_ENUMERATE_INFO_EXT;
+				CheckXRCall(xrEnumerateInteractionRenderModelIdsEXT(session, &interactionRenderModelIdsEnumerateInfo, interactinModelIdCount, &interactinModelIdCount, null));
+				Logger.message($"Can enumerate {interactinModelIdCount} interaction render models");
+				var renderModelIDs = stackalloc ulong[(int)interactinModelIdCount]; //Note: the C# wrapper does not warp a type for XrRenderModelIdEXT
+				var renderModels = new XrRenderModelEXT[(int)interactinModelIdCount];
+				CheckXRCall(xrEnumerateInteractionRenderModelIdsEXT(session, &interactionRenderModelIdsEnumerateInfo, interactinModelIdCount, &interactinModelIdCount, renderModelIDs));
+
+				//TODO currently SteamVR returns 0 so everything else here is effecively untested
+				for (int i = 0; i < interactinModelIdCount; ++i)
+				{
+					var renderModelCreateInfo = new XrRenderModelCreateInfoEXT();
+					renderModelCreateInfo.type = XrStructureType.XR_TYPE_RENDER_MODEL_CREATE_INFO_EXT;
+					renderModelCreateInfo.renderModelId = renderModelIDs[i];
+					var renderModel = new XrRenderModelEXT();
+					//TODO check BRUTAL's GlTF loader for extension supports
+						CheckXRCall(xrCreateRenderModelEXT(session, &renderModelCreateInfo, &renderModel));
+						renderModels[i] = renderModel;
+				}
+
+				foreach(var renderModel in renderModels)
+				{
+						//Obtain which subaction paths this model may be associated with 
+
+						var interactionRenderModelSubactionPathInfo = new XrInteractionRenderModelSubactionPathInfoEXT();
+						interactionRenderModelSubactionPathInfo.type = XrStructureType.XR_TYPE_INTERACTION_RENDER_MODEL_SUBACTION_PATH_INFO_EXT;
+
+
+					uint count = 0;
+					CheckXRCall(xrEnumerateRenderModelSubactionPathsEXT(renderModel, &interactionRenderModelSubactionPathInfo, count, &count, null));
+#pragma warning disable CA2014 // Do not use stackalloc in loops
+					var paths = stackalloc ulong[(int)count];
+#pragma warning restore CA2014 // Do not use stackalloc in loops
+					CheckXRCall(xrEnumerateRenderModelSubactionPathsEXT(renderModel, &interactionRenderModelSubactionPathInfo, count, &count, paths));
+
+					for(int i = 0; i < count; ++i)
+					{
+						Logger.message($"subaction path for render model is {pathToString(paths[i])}");
+						if (paths[i] == handPaths[i])
+							Logger.message($"Found render model {renderModel.Handle} for HandIndex.{(HandIndex)i}");
+					}
+				}
+
+
+			}
+			catch (Exception e)
+			{
+				Logger.error(e.ToString());
 			}
 		}
 
@@ -822,6 +1051,8 @@ namespace KSA.XR
 		{
 			try
 			{
+				HandleAllPendingXREvents();
+
 				if (vkInstance == null)
 					throw new Exception("Vulkan Instance not set");
 				if (vkDevice == null)
@@ -850,7 +1081,7 @@ namespace KSA.XR
 					{
 						var frameState = SynchronizeAndBeginFrame();
 						xrDisplayTime = frameState.predictedDisplayTime;
-						LocateViews(xrDisplayTime);
+						LocateViewsAndActionSpaces(xrDisplayTime);
 						//sync actions
 						frameInFlight = true;
 					}
@@ -995,7 +1226,8 @@ namespace KSA.XR
 			CheckXRCall(xrEndFrame(session, &frameEndInfo));
 		}
 
-		private unsafe void LocateViews(long displayTime)
+		private bool renderModelsLoaded = false;
+		private unsafe void LocateViewsAndActionSpaces(long displayTime)
 		{
 			//locate views
 			var viewState = new XrViewState();
@@ -1011,9 +1243,22 @@ namespace KSA.XR
 			viewLocateInfo.viewConfigurationType = XrViewConfigurationType.XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
 			CheckXRCall(xrLocateViews(session, &viewLocateInfo, &viewState, 2, &viewCount, views));
 
-				var sharedSymmetricFov = ComputeSymetricalFov(views[0].fov, views[1].fov);
-				symetricalEyeFov[0] = sharedSymmetricFov;
-				symetricalEyeFov[1] = sharedSymmetricFov;
+			if (currentSessionState == XrSessionState.XR_SESSION_STATE_FOCUSED)
+			{
+				SyncActions();
+
+				for(int i  = 0; i < 2; ++i)
+				{
+					var spaceLocation = new XrSpaceLocation();
+					spaceLocation.type = XrStructureType.XR_TYPE_SPACE_LOCATION;
+					xrLocateSpace(handActionSpaces[i], applicationLocalSpace, displayTime, &spaceLocation);
+					handGripPose[i] = spaceLocation.pose;
+				}
+			}
+
+			var sharedSymmetricFov = ComputeSymetricalFov(views[0].fov, views[1].fov);
+			symetricalEyeFov[0] = sharedSymmetricFov;
+			symetricalEyeFov[1] = sharedSymmetricFov;
 
 			for (int i = 0; i < viewCount; ++i)
 			{
