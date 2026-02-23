@@ -26,6 +26,14 @@ namespace KSA.XR
 			}
 		}
 
+		public struct RenderModelGLB
+		{
+			public byte[] data;
+			public XrRenderModelAssetEXT renderModelAsset;
+		}
+
+		private Dictionary<string, RenderModelGLB> renderModelCache = new Dictionary<string, RenderModelGLB>();
+
 		EnabledFeatures features;
 		public EnabledFeatures Features => features;
 
@@ -977,6 +985,60 @@ namespace KSA.XR
 				Logger.warning("Attempting to sync action on unfocused session.");
 		}
 
+		HashSet<XrResult> allowedRenderModelReturnCodes = new HashSet<XrResult>
+		{
+			XrResult.XR_ERROR_RENDER_MODEL_ASSET_UNAVAILABLE_EXT,
+			XrResult.XR_ERROR_RENDER_MODEL_GLTF_EXTENSION_REQUIRED_EXT
+		};
+
+
+		#region OpenXR.NET wrong binding fix
+		//HACK circumvent bug in OpenXR.NET bindings
+		//Remove when https://github.com/EvergineTeam/OpenXR.NET/issues/6 is fixed
+		[StructLayout(LayoutKind.Sequential)]
+		private struct XrUuid
+		{
+			public byte data1;
+			public byte data2;
+			public byte data3;
+			public byte data4;
+			public byte data5;
+			public byte data6;
+			public byte data7;
+			public byte data8;
+			public byte data9;
+			public byte data10;
+			public byte data11;
+			public byte data12;
+			public byte data13;
+			public byte data14;
+			public byte data15;
+			public byte data16;
+		}
+
+		private string UuidToString(KSA.XR.OpenXR.XrUuid uuid)
+		{
+			return $"{uuid.data1}{uuid.data2}{uuid.data3}{uuid.data4}{uuid.data5}{uuid.data6}{uuid.data7}{uuid.data8}{uuid.data9}{uuid.data10}{uuid.data11}{uuid.data12}{uuid.data13}{uuid.data14}{uuid.data15}{uuid.data16}";
+		}
+
+		[StructLayout(LayoutKind.Sequential)]
+		private struct XrRenderModelPropertiesEXT
+		{
+			public XrStructureType type;
+			public unsafe void* next;
+			public KSA.XR.OpenXR.XrUuid cacheId;
+			public uint animatableNodeCount;
+		}
+
+		[StructLayout(LayoutKind.Sequential)]
+		private struct XrRenderModelAssetCreateInfoEXT
+		{
+			public XrStructureType type;
+			public unsafe void* next;
+			public KSA.XR.OpenXR.XrUuid cacheId;
+		}
+		#endregion
+
 		private unsafe void LoadControllerModels()
 		{
 			try
@@ -990,7 +1052,6 @@ namespace KSA.XR
 				var renderModels = new XrRenderModelEXT[(int)interactinModelIdCount];
 				CheckXRCall(xrEnumerateInteractionRenderModelIdsEXT(session, &interactionRenderModelIdsEnumerateInfo, interactinModelIdCount, &interactinModelIdCount, renderModelIDs));
 
-				//TODO currently SteamVR returns 0 so everything else here is effecively untested
 				for (int i = 0; i < interactinModelIdCount; ++i)
 				{
 					var renderModelCreateInfo = new XrRenderModelCreateInfoEXT();
@@ -998,17 +1059,16 @@ namespace KSA.XR
 					renderModelCreateInfo.renderModelId = renderModelIDs[i];
 					var renderModel = new XrRenderModelEXT();
 					//TODO check BRUTAL's GlTF loader for extension supports
-						CheckXRCall(xrCreateRenderModelEXT(session, &renderModelCreateInfo, &renderModel));
-						renderModels[i] = renderModel;
+					CheckXRCall(xrCreateRenderModelEXT(session, &renderModelCreateInfo, &renderModel));
+					renderModels[i] = renderModel;
 				}
 
-				foreach(var renderModel in renderModels)
+				foreach (var renderModel in renderModels)
 				{
-						//Obtain which subaction paths this model may be associated with 
+					//Obtain which subaction paths this model may be associated with 
 
-						var interactionRenderModelSubactionPathInfo = new XrInteractionRenderModelSubactionPathInfoEXT();
-						interactionRenderModelSubactionPathInfo.type = XrStructureType.XR_TYPE_INTERACTION_RENDER_MODEL_SUBACTION_PATH_INFO_EXT;
-
+					var interactionRenderModelSubactionPathInfo = new XrInteractionRenderModelSubactionPathInfoEXT();
+					interactionRenderModelSubactionPathInfo.type = XrStructureType.XR_TYPE_INTERACTION_RENDER_MODEL_SUBACTION_PATH_INFO_EXT;
 
 					uint count = 0;
 					CheckXRCall(xrEnumerateRenderModelSubactionPathsEXT(renderModel, &interactionRenderModelSubactionPathInfo, count, &count, null));
@@ -1017,12 +1077,59 @@ namespace KSA.XR
 #pragma warning restore CA2014 // Do not use stackalloc in loops
 					CheckXRCall(xrEnumerateRenderModelSubactionPathsEXT(renderModel, &interactionRenderModelSubactionPathInfo, count, &count, paths));
 
-					for(int i = 0; i < count; ++i)
+					for (int i = 0; i < count; ++i)
 					{
 						Logger.message($"subaction path for render model is {pathToString(paths[i])}");
 						if (paths[i] == handPaths[i])
 							Logger.message($"Found render model {renderModel.Handle} for HandIndex.{(HandIndex)i}");
 					}
+
+					var renderModelPropertiesGetInfo = new XrRenderModelPropertiesGetInfoEXT();
+					renderModelPropertiesGetInfo.type = XrStructureType.XR_TYPE_RENDER_MODEL_PROPERTIES_GET_INFO_EXT;
+					var renderModelProperties = new KSA.XR.OpenXR.XrRenderModelPropertiesEXT();
+					renderModelProperties.type = XrStructureType.XR_TYPE_RENDER_MODEL_PROPERTIES_EXT;
+					var getPropResult = CheckXRCall(xrGetRenderModelPropertiesEXT(renderModel, &renderModelPropertiesGetInfo, (Evergine.Bindings.OpenXR.XrRenderModelPropertiesEXT*)&renderModelProperties));
+
+					var uuid = renderModelProperties.cacheId;
+					var uuidAsString = UuidToString(uuid);
+
+					if (!renderModelCache.ContainsKey(uuidAsString))
+					{
+						//Load the asset 
+						var renderModelAssetCreateInfo = new XrRenderModelAssetCreateInfoEXT();
+						renderModelAssetCreateInfo.type = XrStructureType.XR_TYPE_RENDER_MODEL_ASSET_CREATE_INFO_EXT;
+						renderModelAssetCreateInfo.cacheId = uuid;
+						var renderModelAsset = new XrRenderModelAssetEXT();
+						var createRenderModelResult = CheckXRCall(xrCreateRenderModelAssetEXT(session, (Evergine.Bindings.OpenXR.XrRenderModelAssetCreateInfoEXT*)&renderModelAssetCreateInfo, &renderModelAsset), allowedRenderModelReturnCodes);
+						if (createRenderModelResult == XrResult.XR_ERROR_RENDER_MODEL_ASSET_UNAVAILABLE_EXT)
+						{
+							Logger.message("Render Model Asset is currently unavailable");
+							continue;
+						}
+						var renderModelAssetDataGetInfo = new XrRenderModelAssetDataGetInfoEXT();
+						renderModelAssetDataGetInfo.type = XrStructureType.XR_TYPE_RENDER_MODEL_ASSET_DATA_GET_INFO_EXT;
+
+						var renderModelAssetData = new XrRenderModelAssetDataEXT();
+						renderModelAssetData.type = XrStructureType.XR_TYPE_RENDER_MODEL_ASSET_DATA_EXT;
+						//This call should retreive buffer size required
+						CheckXRCall(xrGetRenderModelAssetDataEXT(renderModelAsset, &renderModelAssetDataGetInfo, &renderModelAssetData));
+						renderModelAssetData.bufferCapacityInput = renderModelAssetData.bufferCountOutput;
+						byte[] buffer = new byte[(int)renderModelAssetData.bufferCapacityInput];
+						fixed (byte* bufferPtr = buffer)
+						{
+							renderModelAssetData.buffer = bufferPtr;
+							CheckXRCall(xrGetRenderModelAssetDataEXT(renderModelAsset, &renderModelAssetDataGetInfo, &renderModelAssetData));
+						}
+						var toAddToCache = new RenderModelGLB();
+						toAddToCache.data = buffer;
+						toAddToCache.renderModelAsset = renderModelAsset;
+						renderModelCache.Add(uuidAsString, toAddToCache);
+					}
+
+
+					//TODO load the GLB in the game.
+
+
 				}
 
 
@@ -1252,8 +1359,12 @@ namespace KSA.XR
 					var spaceLocation = new XrSpaceLocation();
 					spaceLocation.type = XrStructureType.XR_TYPE_SPACE_LOCATION;
 					xrLocateSpace(handActionSpaces[i], applicationLocalSpace, displayTime, &spaceLocation);
+					//TODO check the flags for pose validity
 					handGripPose[i] = spaceLocation.pose;
 				}
+
+				if (!renderModelsLoaded && Features.CanLoadControllerModels)
+					LoadControllerModels();
 			}
 
 			var sharedSymmetricFov = ComputeSymetricalFov(views[0].fov, views[1].fov);
