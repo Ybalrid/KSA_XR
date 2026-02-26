@@ -409,6 +409,7 @@ namespace KSA.XR
 			try
 			{
 				CreateInstance();
+				StartOpenXREventThread();
 				GetHMDSystem();
 				EnumerateViews();
 				CheckOptionalExtensionsEnablement();
@@ -512,7 +513,7 @@ namespace KSA.XR
 					Logger.error(e.ToString());
 				}
 
-				Thread.Sleep(1);
+				Thread.Sleep(100);
 			}
 		}
 
