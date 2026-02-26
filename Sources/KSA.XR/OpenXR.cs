@@ -580,7 +580,7 @@ namespace KSA.XR
 #endif
 		}
 
-		private XrFovf ComputeSymetricalFov(XrFovf leftEyeFov, XrFovf rightEyeFov)
+		private XrFovf ComputeBothEyesSymetricalFov(XrFovf leftEyeFov, XrFovf rightEyeFov)
 		{
 			// Match old Oculus logic in tangent space:
 				// combinedTanHalfFovHorizontal = max(LeftTan, RightTan)
@@ -1172,11 +1172,6 @@ namespace KSA.XR
 				{
 					if (XrViewports.Instance.CurrentRenderState == XrViewports.RenderHackPasses.NormalGame && frameInFlight && (hasEye[0] && hasEye[1]))
 					{
-						/*
-						var tmp = layerProjectionViews[0].subImage.swapchain;
-						layerProjectionViews[1].subImage.swapchain = layerProjectionViews[0].subImage.swapchain;
-						layerProjectionViews[0].subImage.swapchain = tmp;
-						*/
 						fixed (XrCompositionLayerProjectionView* ptr = layerProjectionViews)
 						{
 							EndAndSubmitFrame((hasEye[0] && hasEye[1]) ? ptr : null, xrDisplayTime);
@@ -1335,7 +1330,37 @@ namespace KSA.XR
 		}
 
 		private bool renderModelsLoaded = false;
-		private unsafe void LocateViewsAndActionSpaces(long displayTime)
+		private void LocateViewsAndActionSpaces(long displayTime)
+		{
+			LocateViews(displayTime);
+			LocateActionSpaces(displayTime);
+		}
+
+		private unsafe void LocateActionSpaces(long displayTime)
+		{
+			if (currentSessionState == XrSessionState.XR_SESSION_STATE_FOCUSED)
+			{
+				SyncActions();
+
+				for (int i = 0; i < handActionSpaces.Length; ++i)
+				{
+					handGripPose[i] = new XrPosef();
+					var handPoseSpaceLocation = new XrSpaceLocation();
+					handPoseSpaceLocation.type = XrStructureType.XR_TYPE_SPACE_LOCATION;
+					xrLocateSpace(handActionSpaces[i], applicationLocalSpace, displayTime, &handPoseSpaceLocation);
+					if (0 != (handPoseSpaceLocation.locationFlags & (ulong)(XrSpaceLocationFlags.XR_SPACE_LOCATION_POSITION_VALID_BIT | XrSpaceLocationFlags.XR_SPACE_LOCATION_POSITION_TRACKED_BIT)))
+						handGripPose[i].position = handPoseSpaceLocation.pose.position;
+
+					if (0 != (handPoseSpaceLocation.locationFlags & (ulong)(XrSpaceLocationFlags.XR_SPACE_LOCATION_ORIENTATION_VALID_BIT | XrSpaceLocationFlags.XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT)))
+						handGripPose[i].orientation = handPoseSpaceLocation.pose.orientation;
+				}
+
+				if (!renderModelsLoaded && Features.CanLoadControllerModels)
+					LoadControllerModels();
+			}
+		}
+
+		private unsafe void LocateViews(long displayTime)
 		{
 			//locate views
 			var viewState = new XrViewState();
@@ -1351,24 +1376,7 @@ namespace KSA.XR
 			viewLocateInfo.viewConfigurationType = XrViewConfigurationType.XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
 			CheckXRCall(xrLocateViews(session, &viewLocateInfo, &viewState, 2, &viewCount, views));
 
-			if (currentSessionState == XrSessionState.XR_SESSION_STATE_FOCUSED)
-			{
-				SyncActions();
-
-				for(int i  = 0; i < 2; ++i)
-				{
-					var spaceLocation = new XrSpaceLocation();
-					spaceLocation.type = XrStructureType.XR_TYPE_SPACE_LOCATION;
-					xrLocateSpace(handActionSpaces[i], applicationLocalSpace, displayTime, &spaceLocation);
-					//TODO check the flags for pose validity
-					handGripPose[i] = spaceLocation.pose;
-				}
-
-				if (!renderModelsLoaded && Features.CanLoadControllerModels)
-					LoadControllerModels();
-			}
-
-			var sharedSymmetricFov = ComputeSymetricalFov(views[0].fov, views[1].fov);
+			var sharedSymmetricFov = ComputeBothEyesSymetricalFov(views[0].fov, views[1].fov);
 			symetricalEyeFov[0] = sharedSymmetricFov;
 			symetricalEyeFov[1] = sharedSymmetricFov;
 
@@ -1379,18 +1387,11 @@ namespace KSA.XR
 				var eye = (EyeIndex)i;
 				eyeViewPoses[i] = new XrPosef();
 				if (0 != (viewState.viewStateFlags & (ulong)(XrViewStateFlags.XR_VIEW_STATE_POSITION_VALID_BIT | XrViewStateFlags.XR_VIEW_STATE_POSITION_TRACKED_BIT)))
-				{
-					float3 positionVector = new float3(view.pose.position.x, view.pose.position.y, view.pose.position.z);
 					eyeViewPoses[i].position = view.pose.position;
-				}
 
 				if (0 != (viewState.viewStateFlags & (ulong)(XrViewStateFlags.XR_VIEW_STATE_ORIENTATION_VALID_BIT | XrViewStateFlags.XR_VIEW_STATE_ORIENTATION_TRACKED_BIT)))
-				{
-					var quaternion = new Quaternion(view.pose.orientation.x, view.pose.orientation.y, view.pose.orientation.z, view.pose.orientation.w);
 					eyeViewPoses[i].orientation = view.pose.orientation;
-				}
 			}
-
 		}
 
 		/// <summary>
