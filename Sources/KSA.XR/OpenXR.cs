@@ -172,7 +172,7 @@ namespace KSA.XR
 
 			if (vulkanOpenXRVersion > graphicsRequirements.maxApiVersionSupported)
 			{
-				Logger.warning("The Vulkan version requested by BRUTAL is above the maximum requried vesrion by the OpenXR runtime.");
+				Logger.warning("The Vulkan version requested by BRUTAL is above the maximum required version by the OpenXR runtime.");
 				Logger.warning("Per OpenXR 1.0 specification §12.20 `XR_KHR_vulkan_enable`:");
 				Logger.warning(" maximum Vulkan Instance API version that the runtime has been tested on and is known to support.", "OpenXR SPEC");
 				Logger.warning(" Newer Vulkan Instance API versions might work if they are compatible.", "OpenXR SPEC");
