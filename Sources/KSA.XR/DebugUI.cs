@@ -101,7 +101,7 @@ namespace KSA.XR
 			ImGuiMenuPatcher.ActionAddedAtMenuEnd.Add("View", () =>
 			{
 				ImGui.Separator();
-				ImGui.MenuItem("OpenXR Debug Window", "", ref WindowOpen);
+				ImGui.MenuItem("OpenXR Debug Window", "", ref windowOpen);
 			});
 		}
 
@@ -109,11 +109,15 @@ namespace KSA.XR
 		bool XrSessionStarted = false;
 		float renderBufferResoltuionScale = 1f;
 
-		public bool WindowOpen = true;
+		private bool windowOpen = true;
+		
 		public void StatusWindow(double dt)
 		{
+			if (!windowOpen) {
+				return;
+			}
 
-			if (WindowOpen && ImGui.Begin("KSA_XR", ref WindowOpen))
+			if (ImGui.Begin("KSA_XR", ref windowOpen))
 			{
 				ImGui.TextDisabled("You can close this window and re-open it from the View menu");
 
@@ -186,8 +190,8 @@ namespace KSA.XR
 				{
 					ImGui.Text("OpenXR not initialized.");
 				}
-				ImGui.End();
 			}
+			ImGui.End();
 		}
 	}
 }
