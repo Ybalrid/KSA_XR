@@ -167,16 +167,16 @@ namespace KSA.XR
 						{
 							var pose = xr.MostRecentEyeViewPoses[i];
 							ImGui.Text($"{(OpenXR.EyeIndex)i} eye view pose in LOCAL space:");
-							ImGui.Text($"Pos({pose.position.x}, {pose.position.y}, {pose.position.z})");
-							ImGui.Text($"Rot({pose.orientation.x}, {pose.orientation.y}, {pose.orientation.z}, {pose.orientation.w})");
+							ImGui.Text($"Pos{pose.position.ToString("f5")}");
+							ImGui.Text($"Rot{pose.orientation.ToString("f5")}");
 						}
 						
 						for (int i = 0; i < 2; ++i)
 						{
 							var pose = xr.MostRecentHandPoses[i];
 							ImGui.Text($"{(OpenXR.HandIndex)i} hand pose in LOCAL space:");
-							ImGui.Text($"Pos({pose.position.x}, {pose.position.y}, {pose.position.z})");
-							ImGui.Text($"Rot({pose.orientation.x}, {pose.orientation.y}, {pose.orientation.z}, {pose.orientation.w})");
+							ImGui.Text($"Pos{pose.position.ToString("f5")}");
+							ImGui.Text($"Rot{pose.orientation.ToString("f5")}");
 						}
 
 						var eye = XrViewports.Instance.CurrentXREye;
