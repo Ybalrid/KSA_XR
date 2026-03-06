@@ -14,8 +14,14 @@ namespace KSA.XR
 	internal class ImGuiMenuPatcher
 	{
 
+		/// <summary>
+		/// Brutal does create a specicif ImGui Window just to hold a custom menubar. This flag will be true if we are between the Begin() and End() call for this window.
+		/// </summary>
 		static private bool IsInMenuBarWindow = false;
-		//Due to the fact that sub-menus exist, we need to store the list of menu names that have been open, so the EndMenu() hook can know which menu is terminating
+		
+		/// <summary>
+		/// Due to the fact that sub-menus exist, we need to store the list of menu names that have been open, so the EndMenu() hook can know which menu it is terminating
+		/// </summary>
 		static Stack<string> MenuNames = new Stack<string>();
 
 		/// <summary>
@@ -104,7 +110,7 @@ namespace KSA.XR
 		float renderBufferResoltuionScale = 1f;
 
 		public bool WindowOpen = true;
-		public void StatusWindow()
+		public void StatusWindow(double dt)
 		{
 
 			if (WindowOpen && ImGui.Begin("KSA_XR", ref WindowOpen))

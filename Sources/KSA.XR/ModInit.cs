@@ -20,24 +20,30 @@ namespace KSA.XR
 		{
 			Logger.message("Loading KSA_XR");
 
-			//It is very important to install the patches to KSA before we initialize anything else.
-			harmony.PatchAll(Assembly.GetExecutingAssembly());
-			Logger.message("Harmony patches have been installed.");
-			openxr = new OpenXR();
-
-			ui = new DebugUI();
+			try
+			{
+				//It is very important to install the patches to KSA before we initialize anything else.
+				harmony.PatchAll(Assembly.GetExecutingAssembly());
+				Logger.message("Harmony patches have been installed.");
+				openxr = new OpenXR();
+				ui = new DebugUI();
+			}
+			catch(Exception e)
+			{
+				Logger.error(e.ToString());
+			}
 		}
 
 		[StarMapAfterGui]
 		public void UIPulse(double dt)
 		{
-			ui?.StatusWindow();
+			ui?.StatusWindow(dt);
 		}
 
 		[StarMapAfterOnFrame]
 		public void OnFrame(double time, double dt)
 		{
-			ModInit.openxr?.OnFrame(0);
+			openxr?.OnFrame(dt);
 		}
 
 		[StarMapUnload]
