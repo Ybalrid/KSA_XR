@@ -1,15 +1,8 @@
 using Brutal.Numerics;
 using Brutal.VulkanApi;
 using HarmonyLib;
-using KSA;
-using RenderCore;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Numerics;
 using System.Reflection.Emit;
 using System.Reflection;
-
 
 namespace KSA.XR
 {

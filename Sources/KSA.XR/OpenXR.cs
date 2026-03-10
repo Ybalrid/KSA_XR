@@ -2,7 +2,6 @@
 using Brutal.VulkanApi;
 using Brutal.VulkanApi.Abstractions;
 using Evergine.Bindings.OpenXR;
-using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Text;
 using static Evergine.Bindings.OpenXR.OpenXRNative;
