@@ -695,7 +695,7 @@ namespace KSA.XR
 			if (BrutalVulkanVersion != null)
 				instanceCreateInfo.applicationInfo.engineVersion = PackVersion(BrutalVulkanVersion.Major, BrutalVulkanVersion.Minor, BrutalVulkanVersion.Revision);
 			WriteStringToBuffer("BRUTAL", instanceCreateInfo.applicationInfo.engineName);
-			WriteStringToBuffer("KittenSpaceAgency (KAS_XR mod)", instanceCreateInfo.applicationInfo.applicationName);
+			WriteStringToBuffer("KittenSpaceAgency (KSA_XR mod)", instanceCreateInfo.applicationInfo.applicationName);
 
 			var enabledExtensionsCS = new List<string>();
 			//The following extensions MUST be available, and have been checked before:
@@ -1273,8 +1273,8 @@ namespace KSA.XR
 						layer.type = XrStructureType.XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
 						layer.pose = EyeViews[eye].pose;
 						
-						if(ModInit.ui.TestBool)
-							layer.fov = EyeViews[eye].fov; //TODO it is porbable that we cound fudge this if we cannot coherce the engine into rendering a asymetrical frustrum 
+						if (ModInit.ui.DisableSymetricFOV)
+							layer.fov = EyeViews[eye].fov; //TODO it is probable that we cound fudge this if we cannot coherce the engine into rendering a asymetrical frustrum 
 						else
 							layer.fov = symetricalEyeFov[eye];
 

@@ -105,13 +105,13 @@ namespace KSA.XR
 			});
 		}
 
-		public bool TestBool = false;
+		public bool DisableSymetricFOV = false;
 		bool XrSessionStarted = false;
 		float renderBufferResoltuionScale = 1f;
 
 		private bool windowOpen = true;
-		
-		public void StatusWindow(double dt)
+
+		public void DrawWindow(double dt)
 		{
 			if (!windowOpen) {
 				return;
@@ -183,7 +183,7 @@ namespace KSA.XR
 						var state = XrViewports.Instance.CurrentRenderState;
 
 						ImGui.Text($"State {state} eye {eye}");
-						ImGui.Checkbox("Disable Symetric FoV is layer submission", ref TestBool);
+						ImGui.Checkbox("Disable Symetric FoV in layer submission", ref DisableSymetricFOV);
 					}
 				}
 				else
