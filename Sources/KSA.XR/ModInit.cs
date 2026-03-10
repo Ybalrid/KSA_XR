@@ -39,7 +39,7 @@ namespace KSA.XR
 		{
 			if (Program.DrawUI)
 			{
-				ui?.StatusWindow(dt);
+				ui?.DrawWindow(dt);
 			}
 		}
 
