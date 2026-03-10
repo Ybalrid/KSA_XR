@@ -533,18 +533,24 @@ namespace KSA.XR
 				{
 					case XrStructureType.XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED:
 						var sessionStateChanged = *(XrEventDataSessionStateChanged*)&eventBuffer;
+#if DEBUG
 						Logger.message($"XR Session {sessionStateChanged.session.Handle} changed state to {sessionStateChanged.state}");
+#endif
 						currentSessionState = sessionStateChanged.state;
+					break;
+
+					case XrStructureType.XR_TYPE_EVENT_DATA_INTERACTION_RENDER_MODELS_CHANGED_EXT:
+						var interactinRenderModelsChanged = *(XrEventDataInteractionRenderModelsChangedEXT*)&eventBuffer;
+#if DEBUG
+						Logger.message($"Interaction Render Models have changed.");
+#endif
+						LoadControllerModels();
 						break;
 
-						case XrStructureType.XR_TYPE_EVENT_DATA_INTERACTION_RENDER_MODELS_CHANGED_EXT:
-							var interactinRenderModelsChanged = *(XrEventDataInteractionRenderModelsChangedEXT*)&eventBuffer;
-							Logger.message($"Interaction Render Models have changed.");
-							LoadControllerModels();
-							break;
-
 					default:
+#if DEBUG
 						Logger.warning($"XR Event of type {eventBuffer.type} currently unhandled");
+#endif
 						break;
 				}
 			} while (status == XrResult.XR_SUCCESS);
@@ -1047,7 +1053,9 @@ namespace KSA.XR
 				var interactionRenderModelIdsEnumerateInfo = new XrInteractionRenderModelIdsEnumerateInfoEXT();
 				interactionRenderModelIdsEnumerateInfo.type = XrStructureType.XR_TYPE_INTERACTION_RENDER_MODEL_IDS_ENUMERATE_INFO_EXT;
 				CheckXRCall(xrEnumerateInteractionRenderModelIdsEXT(session, &interactionRenderModelIdsEnumerateInfo, interactinModelIdCount, &interactinModelIdCount, null));
+#if DEBUG
 				Logger.message($"Can enumerate {interactinModelIdCount} interaction render models");
+#endif
 				var renderModelIDs = stackalloc ulong[(int)interactinModelIdCount]; //Note: the C# wrapper does not warp a type for XrRenderModelIdEXT
 				var renderModels = new XrRenderModelEXT[(int)interactinModelIdCount];
 				CheckXRCall(xrEnumerateInteractionRenderModelIdsEXT(session, &interactionRenderModelIdsEnumerateInfo, interactinModelIdCount, &interactinModelIdCount, renderModelIDs));
@@ -1077,12 +1085,14 @@ namespace KSA.XR
 #pragma warning restore CA2014 // Do not use stackalloc in loops
 					CheckXRCall(xrEnumerateRenderModelSubactionPathsEXT(renderModel, &interactionRenderModelSubactionPathInfo, count, &count, paths));
 
+#if DEBUG
 					for (int i = 0; i < count; ++i)
 					{
 						Logger.message($"subaction path for render model is {pathToString(paths[i])}");
 						if (paths[i] == handPaths[i])
 							Logger.message($"Found render model {renderModel.Handle} for HandIndex.{(HandIndex)i}");
 					}
+#endif
 
 					var renderModelPropertiesGetInfo = new XrRenderModelPropertiesGetInfoEXT();
 					renderModelPropertiesGetInfo.type = XrStructureType.XR_TYPE_RENDER_MODEL_PROPERTIES_GET_INFO_EXT;

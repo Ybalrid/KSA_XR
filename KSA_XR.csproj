@@ -12,12 +12,20 @@
 		<Platforms>x64</Platforms>
 	</PropertyGroup>
 
+	<PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+		<DefineConstants>DEBUG</DefineConstants>
+		<Optimize>false</Optimize>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)' == 'Release'">
+		<Optimize>true</Optimize>
+	</PropertyGroup>
+	
 	<ItemGroup>
 		<PackageReference Include="Evergine.Bindings.OpenXR" Version="2025.11.1.3" />
 		<PackageReference Include="Lib.Harmony" Version="2.4.2" />
 		<PackageReference Include="OpenXR.Loader" Version="1.0.10.2" GeneratePathProperty="true" />
 		<PackageReference Include="StarMap.API" Version="0.3.6" />
-
 	</ItemGroup>
 
 	<ItemGroup>
@@ -27,7 +35,6 @@
 		<_KsaAssemblies Include="$(KSADir)Tomlet.dll" Path="%(FullPath)" />
 		<Reference Include="@(_KsaAssemblies->'%(FileName)')" HintPath="%(Path)" Private="False" />
 	</ItemGroup>
-
 
 	<Target Name="CopyOpenXRLoaderNativeDll" AfterTargets="Build">
 
@@ -61,7 +68,6 @@
 
 		<Message Importance="high" Text="Copied @(_OpenXRToCopy) -&gt; $(TargetDir)" />
 	</Target>
-
 
 	<ItemGroup>
 		<None Include="mod.toml" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
