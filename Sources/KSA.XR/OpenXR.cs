@@ -1168,8 +1168,6 @@ namespace KSA.XR
 		{
 			try
 			{
-				HandleAllPendingXREvents();
-
 				if (vkInstance == null)
 					throw new Exception("Vulkan Instance not set");
 				if (vkDevice == null)
@@ -1179,6 +1177,7 @@ namespace KSA.XR
 
 				if (hasSessionBegan)
 				{
+					HandleAllPendingXREvents();
 					if (XrViewports.Instance.CurrentRenderState == XrViewports.RenderHackPasses.NormalGame && frameInFlight && (hasEye[0] && hasEye[1]))
 					{
 						fixed (XrCompositionLayerProjectionView* ptr = layerProjectionViews)
