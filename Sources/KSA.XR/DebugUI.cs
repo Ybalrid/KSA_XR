@@ -101,19 +101,23 @@ namespace KSA.XR
 			ImGuiMenuPatcher.ActionAddedAtMenuEnd.Add("View", () =>
 			{
 				ImGui.Separator();
-				ImGui.MenuItem("OpenXR Debug Window", "", ref WindowOpen);
+				ImGui.MenuItem("OpenXR Debug Window", "", ref windowOpen);
 			});
 		}
 
-		public bool TestBool = false;
+		public bool DisableSymetricFOV = false;
 		bool XrSessionStarted = false;
 		float renderBufferResoltuionScale = 1f;
 
-		public bool WindowOpen = true;
-		public void StatusWindow(double dt)
-		{
+		private bool windowOpen = true;
 
-			if (WindowOpen && ImGui.Begin("KSA_XR", ref WindowOpen))
+		public void DrawWindow(double dt)
+		{
+			if (!windowOpen) {
+				return;
+			}
+
+			if (ImGui.Begin("KSA_XR", ref windowOpen))
 			{
 				ImGui.TextDisabled("You can close this window and re-open it from the View menu");
 
@@ -163,31 +167,31 @@ namespace KSA.XR
 						{
 							var pose = xr.MostRecentEyeViewPoses[i];
 							ImGui.Text($"{(OpenXR.EyeIndex)i} eye view pose in LOCAL space:");
-							ImGui.Text($"Pos({pose.position.x}, {pose.position.y}, {pose.position.z})");
-							ImGui.Text($"Rot({pose.orientation.x}, {pose.orientation.y}, {pose.orientation.z}, {pose.orientation.w})");
+							ImGui.Text($"Pos{pose.position.ToString("f5")}");
+							ImGui.Text($"Rot{pose.orientation.ToString("f5")}");
 						}
 						
 						for (int i = 0; i < 2; ++i)
 						{
 							var pose = xr.MostRecentHandPoses[i];
 							ImGui.Text($"{(OpenXR.HandIndex)i} hand pose in LOCAL space:");
-							ImGui.Text($"Pos({pose.position.x}, {pose.position.y}, {pose.position.z})");
-							ImGui.Text($"Rot({pose.orientation.x}, {pose.orientation.y}, {pose.orientation.z}, {pose.orientation.w})");
+							ImGui.Text($"Pos{pose.position.ToString("f5")}");
+							ImGui.Text($"Rot{pose.orientation.ToString("f5")}");
 						}
 
 						var eye = XrViewports.Instance.CurrentXREye;
 						var state = XrViewports.Instance.CurrentRenderState;
 
 						ImGui.Text($"State {state} eye {eye}");
-						ImGui.Checkbox("Disable Symetric FoV is layer submission", ref TestBool);
+						ImGui.Checkbox("Disable Symetric FoV in layer submission", ref DisableSymetricFOV);
 					}
 				}
 				else
 				{
 					ImGui.Text("OpenXR not initialized.");
 				}
-				ImGui.End();
 			}
+			ImGui.End();
 		}
 	}
 }
