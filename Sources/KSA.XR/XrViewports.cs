@@ -313,7 +313,7 @@ namespace KSA.XR
 			if (frameResources == null || frameResources.Length == 0)
 				return;
 
-			int frameIndex = __instance.FrameIndex;
+			int frameIndex = __instance.SwapchainImageIndex;
 			if (frameIndex < 0 || frameIndex >= frameResources.Length)
 				return;
 
