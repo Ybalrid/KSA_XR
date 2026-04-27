@@ -528,30 +528,30 @@ namespace KSA.XR
 				var eventBuffer = new XrEventDataBuffer();
 				eventBuffer.type = XrStructureType.XR_TYPE_EVENT_DATA_BUFFER;
 				status = CheckXRCall(xrPollEvent(instance, &eventBuffer), pollEventAllowedResults);
-				if(status == XrResult.XR_SUCCESS) switch (eventBuffer.type)
-				{
-					case XrStructureType.XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED:
-						var sessionStateChanged = *(XrEventDataSessionStateChanged*)&eventBuffer;
+				if (status == XrResult.XR_SUCCESS) switch (eventBuffer.type)
+					{
+						case XrStructureType.XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED:
+							var sessionStateChanged = *(XrEventDataSessionStateChanged*)&eventBuffer;
 #if DEBUG
-						Logger.message($"XR Session {sessionStateChanged.session.Handle} changed state to {sessionStateChanged.state}");
+							Logger.message($"XR Session {sessionStateChanged.session.Handle} changed state to {sessionStateChanged.state}");
 #endif
-						currentSessionState = sessionStateChanged.state;
-					break;
+							currentSessionState = sessionStateChanged.state;
+							break;
 
-					case XrStructureType.XR_TYPE_EVENT_DATA_INTERACTION_RENDER_MODELS_CHANGED_EXT:
-						var interactinRenderModelsChanged = *(XrEventDataInteractionRenderModelsChangedEXT*)&eventBuffer;
+						case XrStructureType.XR_TYPE_EVENT_DATA_INTERACTION_RENDER_MODELS_CHANGED_EXT:
+							var interactinRenderModelsChanged = *(XrEventDataInteractionRenderModelsChangedEXT*)&eventBuffer;
 #if DEBUG
-						Logger.message($"Interaction Render Models have changed.");
+							Logger.message($"Interaction Render Models have changed.");
 #endif
-						LoadControllerModels();
-						break;
+							LoadControllerModels();
+							break;
 
-					default:
+						default:
 #if DEBUG
-						Logger.warning($"XR Event of type {eventBuffer.type} currently unhandled");
+							Logger.warning($"XR Event of type {eventBuffer.type} currently unhandled");
 #endif
-						break;
-				}
+							break;
+					}
 			} while (status == XrResult.XR_SUCCESS);
 		}
 
@@ -587,31 +587,31 @@ namespace KSA.XR
 		private XrFovf ComputeBothEyesSymetricalFov(XrFovf leftEyeFov, XrFovf rightEyeFov)
 		{
 			// Match old Oculus logic in tangent space:
-				// combinedTanHalfFovHorizontal = max(LeftTan, RightTan)
-				// combinedTanHalfFovVertical   = max(UpTan, DownTan)
-				// OpenXR uses signed radians where left/down are negative.
-				var leftTan = MathF.Max(
-					MathF.Tan(-leftEyeFov.angleLeft),
-					MathF.Tan(-rightEyeFov.angleLeft));
-				var rightTan = MathF.Max(
-					MathF.Tan(leftEyeFov.angleRight),
-					MathF.Tan(rightEyeFov.angleRight));
-				var downTan = MathF.Max(
-					MathF.Tan(-leftEyeFov.angleDown),
-					MathF.Tan(-rightEyeFov.angleDown));
-				var upTan = MathF.Max(
-					MathF.Tan(leftEyeFov.angleUp),
-					MathF.Tan(rightEyeFov.angleUp));
+			// combinedTanHalfFovHorizontal = max(LeftTan, RightTan)
+			// combinedTanHalfFovVertical   = max(UpTan, DownTan)
+			// OpenXR uses signed radians where left/down are negative.
+			var leftTan = MathF.Max(
+				MathF.Tan(-leftEyeFov.angleLeft),
+				MathF.Tan(-rightEyeFov.angleLeft));
+			var rightTan = MathF.Max(
+				MathF.Tan(leftEyeFov.angleRight),
+				MathF.Tan(rightEyeFov.angleRight));
+			var downTan = MathF.Max(
+				MathF.Tan(-leftEyeFov.angleDown),
+				MathF.Tan(-rightEyeFov.angleDown));
+			var upTan = MathF.Max(
+				MathF.Tan(leftEyeFov.angleUp),
+				MathF.Tan(rightEyeFov.angleUp));
 
-				var horizontalTan = MathF.Max(leftTan, rightTan);
-				var verticalTan = MathF.Max(upTan, downTan);
+			var horizontalTan = MathF.Max(leftTan, rightTan);
+			var verticalTan = MathF.Max(upTan, downTan);
 
-				XrFovf symmetricFov = new XrFovf();
-				symmetricFov.angleLeft = -MathF.Atan(horizontalTan);
-				symmetricFov.angleRight = MathF.Atan(horizontalTan);
-				symmetricFov.angleDown = -MathF.Atan(verticalTan);
-				symmetricFov.angleUp = MathF.Atan(verticalTan);
-				return symmetricFov;
+			XrFovf symmetricFov = new XrFovf();
+			symmetricFov.angleLeft = -MathF.Atan(horizontalTan);
+			symmetricFov.angleRight = MathF.Atan(horizontalTan);
+			symmetricFov.angleDown = -MathF.Atan(verticalTan);
+			symmetricFov.angleUp = MathF.Atan(verticalTan);
+			return symmetricFov;
 		}
 
 		private unsafe void EnumerateViews()
@@ -780,6 +780,18 @@ namespace KSA.XR
 			systemName = PtrToString(systemProperties.systemName);
 		}
 
+		/// <summary>
+		/// Initializes an OpenXR session and allocates Vulkan swapchains for each eye, configuring rendering resources based
+		/// on the specified pixel scale.
+		/// </summary>
+		/// <remarks>This method sets up the OpenXR session and allocates all necessary Vulkan resources for stereo
+		/// rendering. It must be called after the Vulkan instance, device, and queue are set, and after the OpenXR instance
+		/// is initialized. If any required resource is missing or initialization fails, the method logs an error and returns
+		/// false. The method is not thread-safe and should be called from the main thread or during initialization.</remarks>
+		/// <param name="pixelScale">The scaling factor applied to the recommended image size for each eye's render target. Must be greater than 0. A
+		/// value of 1 uses the recommended size; values greater or less than 1 increase or decrease the render target
+		/// resolution, respectively.</param>
+		/// <returns>true if the session and swapchains are successfully created and allocated; otherwise, false.</returns>
 		public bool CreateSesionAndAllocateSwapchains(float pixelScale = 1f)
 		{
 			try
@@ -871,7 +883,7 @@ namespace KSA.XR
 						compatibleSwapchainVulkanFormat.Add(format);
 					}
 
-					var formatSelected = 0; //TODO choose a format from the list for real
+					var formatSelected = 0; //TODO choose a format from the list for real //TODO check the XR spec, is the first for mat in the list the "best"?
 
 
 					for (int eye = 0; eye < 2; ++eye)
@@ -980,7 +992,7 @@ namespace KSA.XR
 		{
 			var activeActionSet = new XrActiveActionSet();
 			activeActionSet.actionSet = actionSet;
-			
+
 			var actionsSyncInfo = new XrActionsSyncInfo();
 			actionsSyncInfo.type = XrStructureType.XR_TYPE_ACTIONS_SYNC_INFO;
 			actionsSyncInfo.activeActionSets = &activeActionSet;
@@ -1004,8 +1016,6 @@ namespace KSA.XR
 			return output;
 		}
 
-
-
 		private unsafe void LoadControllerModels()
 		{
 			try
@@ -1017,7 +1027,7 @@ namespace KSA.XR
 #if DEBUG
 				Logger.message($"Can enumerate {interactinModelIdCount} interaction render models");
 #endif
-				var renderModelIDs = stackalloc XrRenderModelIdEXT[(int)interactinModelIdCount]; //Note: the C# wrapper does not warp a type for XrRenderModelIdEXT
+				var renderModelIDs = stackalloc XrRenderModelIdEXT[(int)interactinModelIdCount];
 				var renderModels = new XrRenderModelEXT[(int)interactinModelIdCount];
 				CheckXRCall(xrEnumerateInteractionRenderModelIdsEXT(session, &interactionRenderModelIdsEnumerateInfo, interactinModelIdCount, &interactinModelIdCount, renderModelIDs));
 
@@ -1097,9 +1107,7 @@ namespace KSA.XR
 						renderModelCache.Add(uuidAsString, toAddToCache);
 					}
 
-
 					//TODO load the GLB in the game.
-
 
 				}
 
@@ -1232,9 +1240,11 @@ namespace KSA.XR
 						XrCompositionLayerProjectionView layer = new XrCompositionLayerProjectionView();
 						layer.type = XrStructureType.XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
 						layer.pose = EyeViews[eye].pose;
-						
+
+						//A good numbder of shaders in the game breaks if the view frustum is not symetrical.
+						//This fix is enabled by default. It is subobtimal as you render extra pixels not needeed for each eye.
 						if (ModInit.ui.DisableSymetricFOV)
-							layer.fov = EyeViews[eye].fov; //TODO it is probable that we cound fudge this if we cannot coherce the engine into rendering a asymetrical frustrum 
+							layer.fov = EyeViews[eye].fov;
 						else
 							layer.fov = symetricalEyeFov[eye];
 
@@ -1242,7 +1252,7 @@ namespace KSA.XR
 						layer.subImage.imageRect.extent.width = eyeRenderTargetSizes[eye].X;
 						layer.subImage.imageRect.extent.height = eyeRenderTargetSizes[eye].Y;
 
-						
+
 						layerProjectionViews[eye] = layer;
 
 						hasEye[eye] = true;
@@ -1533,7 +1543,7 @@ namespace KSA.XR
 			vkQueue.Submit(submitInfos, copyFence);
 
 			//Make sure it's done
-			vkDevice.WaitForFences(fencesToReset, true, (nint)(-1));
+			vkDevice.WaitForFences(fencesToReset, true, (nint)(-1)); //TODO define a constant for C limits.h UNIT_MAX, if we need this more than once.
 		}
 
 		public bool EnsureDesktopCompositeBuffer(int2 size, VkFormat format)
@@ -1574,7 +1584,7 @@ namespace KSA.XR
 					VkMemoryPropertyFlags.DeviceLocalBit,
 					null);
 
-				VkDeviceExtensions.BindImageMemory(vkDevice, desktopCompositeBufferImage, desktopCompositeBufferMemory, (Brutal.ByteSize64) 0);
+				VkDeviceExtensions.BindImageMemory(vkDevice, desktopCompositeBufferImage, desktopCompositeBufferMemory, (Brutal.ByteSize64)0);
 
 				desktopCompositeBufferSize = size;
 				desktopCompositeBufferFormat = format;
