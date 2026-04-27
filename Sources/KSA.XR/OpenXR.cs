@@ -310,7 +310,7 @@ namespace KSA.XR
 
 		private bool hasSessionBegan = false;
 		XrSpace applicationLocalSpace;
-		ulong systemId = 0;
+		XrSystemId systemId = 0;
 		XrViewConfigurationType viewConfigurationType;
 		public XrViewConfigurationType ViewConfigurationType => viewConfigurationType;
 		XrViewConfigurationView[] eyeViewConfigurations = new XrViewConfigurationView[2];
@@ -421,7 +421,7 @@ namespace KSA.XR
 			}
 		}
 
-		ulong[] handPaths = new ulong[2];
+		XrPath[] handPaths = new XrPath[2];
 		XrAction handPoseAction;
 		XrActionSet actionSet;
 
@@ -430,10 +430,9 @@ namespace KSA.XR
 
 		public XrPosef[] MostRecentHandPoses => handGripPose;
 
-		//XrPath
-		ulong profile;
-		ulong leftHandPose;
-		ulong rightHandPose;
+		XrPath profile;
+		XrPath leftHandPose;
+		XrPath rightHandPose;
 
 
 		private unsafe void SetupActions()
@@ -456,7 +455,7 @@ namespace KSA.XR
 			WriteStringToBuffer("Hand pose", actionCreateInfo.localizedActionName);
 			actionCreateInfo.countSubactionPaths = 2;
 			actionCreateInfo.actionType = XrActionType.XR_ACTION_TYPE_POSE_INPUT;
-			fixed (ulong* handPathsPtr = handPaths)
+			fixed (XrPath* handPathsPtr = handPaths)
 			{
 				actionCreateInfo.subactionPaths = handPathsPtr;
 				CheckXRCall(xrCreateAction(actionSet, &actionCreateInfo, &handPoseAction));
@@ -767,7 +766,7 @@ namespace KSA.XR
 			XrSystemGetInfo systemGetInfo = new XrSystemGetInfo();
 			systemGetInfo.type = XrStructureType.XR_TYPE_SYSTEM_GET_INFO;
 			systemGetInfo.formFactor = XrFormFactor.XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
-			ulong systemId;
+			XrSystemId systemId;
 			CheckXRCall(xrGetSystem(instance, &systemGetInfo, &systemId));
 
 			Logger.message($"Found an HMD Formfactor XR System on runtime (ID = {systemId})");
@@ -931,16 +930,16 @@ namespace KSA.XR
 			}
 		}
 
-		private unsafe ulong xrPath(string str)
+		private unsafe XrPath xrPath(string str)
 		{
-			ulong path;
+			XrPath path;
 			var strBytes = Encoding.ASCII.GetBytes(str + '\0');
 			fixed (byte* strBytesPtr = strBytes)
 				CheckXRCall(xrStringToPath(instance, strBytesPtr, &path));
 			return path;
 		}
 
-		private unsafe string? pathToString(ulong path)
+		private unsafe string? pathToString(XrPath path)
 		{
 			uint buffSize = 0;
 			CheckXRCall(xrPathToString(instance, path, buffSize, &buffSize, null));
@@ -1056,7 +1055,7 @@ namespace KSA.XR
 #if DEBUG
 				Logger.message($"Can enumerate {interactinModelIdCount} interaction render models");
 #endif
-				var renderModelIDs = stackalloc ulong[(int)interactinModelIdCount]; //Note: the C# wrapper does not warp a type for XrRenderModelIdEXT
+				var renderModelIDs = stackalloc XrRenderModelIdEXT[(int)interactinModelIdCount]; //Note: the C# wrapper does not warp a type for XrRenderModelIdEXT
 				var renderModels = new XrRenderModelEXT[(int)interactinModelIdCount];
 				CheckXRCall(xrEnumerateInteractionRenderModelIdsEXT(session, &interactionRenderModelIdsEnumerateInfo, interactinModelIdCount, &interactinModelIdCount, renderModelIDs));
 
@@ -1081,7 +1080,7 @@ namespace KSA.XR
 					uint count = 0;
 					CheckXRCall(xrEnumerateRenderModelSubactionPathsEXT(renderModel, &interactionRenderModelSubactionPathInfo, count, &count, null));
 #pragma warning disable CA2014 // Do not use stackalloc in loops
-					var paths = stackalloc ulong[(int)count];
+					var paths = stackalloc XrPath[(int)count];
 #pragma warning restore CA2014 // Do not use stackalloc in loops
 					CheckXRCall(xrEnumerateRenderModelSubactionPathsEXT(renderModel, &interactionRenderModelSubactionPathInfo, count, &count, paths));
 
