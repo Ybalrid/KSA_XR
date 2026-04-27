@@ -996,53 +996,15 @@ namespace KSA.XR
 			XrResult.XR_ERROR_RENDER_MODEL_GLTF_EXTENSION_REQUIRED_EXT
 		};
 
-
-		#region OpenXR.NET wrong binding fix
-		//HACK circumvent bug in OpenXR.NET bindings
-		//Remove when https://github.com/EvergineTeam/OpenXR.NET/issues/6 is fixed
-		[StructLayout(LayoutKind.Sequential)]
-		private struct XrUuid
+		private unsafe string UuidToString(XrUuid uuid)
 		{
-			public byte data1;
-			public byte data2;
-			public byte data3;
-			public byte data4;
-			public byte data5;
-			public byte data6;
-			public byte data7;
-			public byte data8;
-			public byte data9;
-			public byte data10;
-			public byte data11;
-			public byte data12;
-			public byte data13;
-			public byte data14;
-			public byte data15;
-			public byte data16;
+			var output = new String("");
+			for (int i = 0; i < XR_UUID_SIZE; ++i)
+				output += uuid.data[i].ToString();
+			return output;
 		}
 
-		private string UuidToString(KSA.XR.OpenXR.XrUuid uuid)
-		{
-			return $"{uuid.data1}{uuid.data2}{uuid.data3}{uuid.data4}{uuid.data5}{uuid.data6}{uuid.data7}{uuid.data8}{uuid.data9}{uuid.data10}{uuid.data11}{uuid.data12}{uuid.data13}{uuid.data14}{uuid.data15}{uuid.data16}";
-		}
 
-		[StructLayout(LayoutKind.Sequential)]
-		private struct XrRenderModelPropertiesEXT
-		{
-			public XrStructureType type;
-			public unsafe void* next;
-			public KSA.XR.OpenXR.XrUuid cacheId;
-			public uint animatableNodeCount;
-		}
-
-		[StructLayout(LayoutKind.Sequential)]
-		private struct XrRenderModelAssetCreateInfoEXT
-		{
-			public XrStructureType type;
-			public unsafe void* next;
-			public KSA.XR.OpenXR.XrUuid cacheId;
-		}
-		#endregion
 
 		private unsafe void LoadControllerModels()
 		{
@@ -1095,7 +1057,7 @@ namespace KSA.XR
 
 					var renderModelPropertiesGetInfo = new XrRenderModelPropertiesGetInfoEXT();
 					renderModelPropertiesGetInfo.type = XrStructureType.XR_TYPE_RENDER_MODEL_PROPERTIES_GET_INFO_EXT;
-					var renderModelProperties = new KSA.XR.OpenXR.XrRenderModelPropertiesEXT();
+					var renderModelProperties = new XrRenderModelPropertiesEXT();
 					renderModelProperties.type = XrStructureType.XR_TYPE_RENDER_MODEL_PROPERTIES_EXT;
 					var getPropResult = CheckXRCall(xrGetRenderModelPropertiesEXT(renderModel, &renderModelPropertiesGetInfo, (Evergine.Bindings.OpenXR.XrRenderModelPropertiesEXT*)&renderModelProperties));
 
