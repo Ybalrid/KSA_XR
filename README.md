@@ -6,7 +6,7 @@ This mod is intended to support any OpenXR compatible system implementing the HM
 
 This mod is written against the [StarMap loader](https://github.com/StarMapLoader/StarMap)
 
-Validated against KSA build 3638
+Current main branch tested against KSA build 4184, and StarMap 0.4.5
 
 ## Installation
 
