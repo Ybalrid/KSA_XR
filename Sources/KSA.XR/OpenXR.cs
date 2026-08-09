@@ -1214,8 +1214,8 @@ namespace KSA.XR
 							/*
 							 * Now that all the boiler plate is put in place, it is time to start worrying about pushing pixels...!
 							 *
-							 * The above handle is a VkImage that is owned by the XR runtiem we have been "allowed to touch"
-							 * for the duration of time between the successful call to xrWaitSwapchainImage, up to when we calle xrReleaseSwapchainImage()
+							 * The above handle is a VkImage that is owned by the XR runtime we have been "allowed to touch"
+							 * for the duration of time between the successful call to xrWaitSwapchainImage, up to when we call xrReleaseSwapchainImage()
 							 *
 							 * There are two options ahead:
 							 *
