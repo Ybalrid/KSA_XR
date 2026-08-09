@@ -160,7 +160,26 @@ namespace KSA.XR
 			if (instance.Handle == 0)
 				return;
 
-			unsafe { CheckXRCall(xrGetVulkanGraphicsRequirementsKHR(instance, systemId, &graphicsRequirements)); }
+			unsafe 
+			{
+				var allowedErrors = new HashSet<XrResult>
+				{
+					XrResult.XR_ERROR_SYSTEM_INVALID
+				};
+
+				var status = CheckXRCall(xrGetVulkanGraphicsRequirementsKHR(instance, systemId, &graphicsRequirements), allowedErrors); 
+
+				if(status != XrResult.XR_SUCCESS)
+				{
+					Logger.error($"Failed to obtain OpenXR runtime graphics requirement : {status}");
+					if(status == XrResult.XR_ERROR_SYSTEM_INVALID)
+					{
+						Logger.error("System ID is invalid. Need to make sure the HMD form factor was available.");
+						Logger.error("We are not going to pursue checking the required Vulkan version now.");
+						return;
+					}
+				}
+			}
 			Logger.message($"Runtime requires vulkan minimum version {XR_VERSION_MAJOR(graphicsRequirements.minApiVersionSupported)}.{XR_VERSION_MINOR(graphicsRequirements.minApiVersionSupported)}.{XR_VERSION_PATCH(graphicsRequirements.minApiVersionSupported)}");
 			Logger.message($"Runtime requires vulkan maximum version {XR_VERSION_MAJOR(graphicsRequirements.maxApiVersionSupported)}.{XR_VERSION_MINOR(graphicsRequirements.maxApiVersionSupported)}.{XR_VERSION_PATCH(graphicsRequirements.maxApiVersionSupported)}");
 
