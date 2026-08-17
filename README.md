@@ -8,6 +8,8 @@ This mod is written against the [StarMap loader](https://github.com/StarMapLoade
 
 Current main branch tested against KSA build 5168, and StarMap 0.4.6
 
+Note: the above may not apply to the released build, as it may be required to build the current version of the code against the assemblies of the current KSA version.
+
 ## Installation
 
 - Download and install [StarMap](https://github.com/StarMapLoader/StarMap) first.
