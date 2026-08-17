@@ -239,13 +239,12 @@ namespace KSA.XR
 
 		#region Extension loading support 
 		/// <summary>
-		/// Allocates and initializes an array of pointers to byte buffers, each containing the string representation of a
-		/// specified file extension.
+		/// Allocates and initializes an array of pointers to byte buffers, each containing a C string extension name from the input list.
 		/// </summary>
 		/// <remarks>Each extension string is allocated a buffer of up to 128 bytes. The caller is responsible for
 		/// freeing the allocated memory to prevent memory leaks.</remarks>
-		/// <param name="extensions">A list of file extension strings to convert into byte buffer pointers. The list must contain at least one element.</param>
-		/// <returns>A pointer to an array of byte pointers, where each pointer references a buffer containing a file extension string.
+		/// <param name="extensions">A list of file extension strings to convert into a pointer to an array of C stirngs. The list must contain at least one element.</param>
+		/// <returns>A pointer to an array of byte pointers, where each pointer references a buffer containing an extension name string
 		/// Returns null if the input list is empty.</returns>
 		private unsafe byte** BuildExtensionListPointer(List<string> extensions)
 		{
@@ -297,18 +296,24 @@ namespace KSA.XR
 
 		Dictionary<string, bool> enabledOptionalExtensions = new Dictionary<string, bool>();
 		List<string> runtimeAvailableOpenXRExtensions = new List<string>();
+
+		/// <summary>
+		/// Obtain the list of instance extensions available from the OpenXR runtime. This call will populate `runtimeAvailableOpenXRExtensions`.
+		/// </summary>
+		/// <exception cref="Exception">In case an invalid structure is returned by the runtime and an extension properites do not have a valid name.</exception>
 		private unsafe void GetListOfAvailableExtensions()
 		{
-			uint count = 0;
-			var result = xrEnumerateInstanceExtensionProperties(null, count, &count, null);
-			CheckXRCall(result);
+			runtimeAvailableOpenXRExtensions.Clear();
 
+			//This is the usual 2 call idiom for obtaining data from OpenXR (or Vulkan). You'll see it elswhere here.
+			//We need to have a flat byte buffer of count * sizeof(XrInstanceExtensionProperties).
+			//Also in the C api, the size is represented by a uint32_t. Hence the cast to (int) in the allocation. Becuase C#.
+			uint count = 0;
+			CheckXRCall(xrEnumerateInstanceExtensionProperties(null, count, &count, null));
 			var props = stackalloc XrExtensionProperties[(int)count];
 			for (int i = 0; i < count; ++i)
 				props[i].type = XrStructureType.XR_TYPE_EXTENSION_PROPERTIES;
-
-			result = xrEnumerateInstanceExtensionProperties(null, count, &count, props);
-			CheckXRCall(result);
+			CheckXRCall(xrEnumerateInstanceExtensionProperties(null, count, &count, props));
 
 			for (int i = 0; i < count; ++i)
 			{
@@ -372,14 +377,23 @@ namespace KSA.XR
 
 		#region OpenXR Debug Infrastructure
 		bool useDebugMessenger = false;
-
+		
+		//We need to define a type that matches the function pointer type used in the C api here.
 		[UnmanagedFunctionPointer(CallingConvention.StdCall)]
-		public unsafe delegate XrBool32 DebugCallbackType(XrDebugUtilsMessageSeverityFlagsEXT severity, XrDebugUtilsMessageTypeFlagsEXT type, XrDebugUtilsMessengerCallbackDataEXT* data, void* userData);
+		public unsafe delegate XrBool32 DebugCallbackType(XrDebugUtilsMessageSeverityFlagsEXT severity, 
+			XrDebugUtilsMessageTypeFlagsEXT type, 
+			XrDebugUtilsMessengerCallbackDataEXT* data, 
+			void* userData);
 
 		private DebugCallbackType? DebugCallbackObj;
 		private GCHandle DebugMessengerHandle;
 		private IntPtr DebugMessengerPtr = IntPtr.Zero;
 
+		/// <summary>
+		/// Returns a printable string for the OpenXR message type bit.
+		/// </summary>
+		/// <param name="type">Bitflag retunred to the debug messenger</param>
+		/// <returns>Message type string</returns>
 		private static string MessageType(XrDebugUtilsMessageTypeFlagsEXT type)
 		{
 			switch (type)
@@ -397,15 +411,21 @@ namespace KSA.XR
 			return "Unkown";
 		}
 
-		public static unsafe XrBool32 DebugCallback(XrDebugUtilsMessageSeverityFlagsEXT severity, XrDebugUtilsMessageTypeFlagsEXT type, XrDebugUtilsMessengerCallbackDataEXT* data, void* userData)
+		public static unsafe XrBool32 DebugCallback(XrDebugUtilsMessageSeverityFlagsEXT severity, 
+			XrDebugUtilsMessageTypeFlagsEXT type,
+			XrDebugUtilsMessengerCallbackDataEXT* data,
+			void* userData)
 		{
 			string message = $"{PtrToString(data->message)} {PtrToString(data->messageId)} {PtrToString(data->functionName)}";
+
+			//We just want to feed the error message towards the right kind of log depending on the severity bitflag
 			if (((ulong)severity & (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) != 0)
 				Logger.error(message, $"OpenXR {MessageType(type)}");
 			else if (((ulong)severity & (ulong)XrDebugUtilsMessageSeverityFlagsEXT.XR_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) != 0)
 				Logger.warning(message, $"OpenXR {MessageType(type)}");
 			else
 				Logger.message(message, $"OpenXR {MessageType(type)}");
+			
 			return XR_FALSE;
 		}
 
@@ -452,7 +472,6 @@ namespace KSA.XR
 		XrPath profile;
 		XrPath leftHandPose;
 		XrPath rightHandPose;
-
 
 		private unsafe void SetupActions()
 		{
@@ -1938,7 +1957,13 @@ namespace KSA.XR
 			//DestroySession();
 		}
 
-		private bool CheckOptionalExtensionIsAvailable(string extName)
+        /// <summary>
+        /// Checks if the specified optional OpenXR extension is available in the runtime.
+		/// If the extension is not available, it returns false without throwing an exception.
+        /// </summary>
+        /// <param name="extName"></param>
+        /// <returns>true if the extension is available, false otherwise</returns>
+        private bool CheckOptionalExtensionIsAvailable(string extName)
 		{
 			return runtimeAvailableOpenXRExtensions.Contains(extName);
 		}
