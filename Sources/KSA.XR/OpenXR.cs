@@ -372,7 +372,7 @@ namespace KSA.XR
 		Brutal.VulkanApi.Device? vkDevice;
 		Brutal.VulkanApi.Queue? vkQueue;
 
-		KSA.Viewport?[] eyeViewport = new KSA.Viewport[2];
+		KSA.ViewportBase?[] eyeViewport = new KSA.ViewportBase[2];
 		KSA.Camera?[] eyeCameras = new KSA.Camera[2];
 
 		#region OpenXR Debug Infrastructure
