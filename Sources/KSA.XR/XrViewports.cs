@@ -1,8 +1,8 @@
 using Brutal.Numerics;
 using Brutal.VulkanApi;
 using HarmonyLib;
-using System.Reflection.Emit;
 using System.Reflection;
+using System.Reflection.Emit;
 
 namespace KSA.XR
 {
@@ -273,7 +273,7 @@ namespace KSA.XR
 		}
 	}
 
-	[HarmonyPatch]
+    [HarmonyPatch]
 	internal static class SkipImGuiRenderDrawDataPatch
 	{
 		static IEnumerable<MethodBase> TargetMethods()
@@ -291,10 +291,32 @@ namespace KSA.XR
 		}
 	}
 
-	// This patch is explicitly here to suppress the two blank XR-phase frames that
-	// would otherwise be presented to the game's desktop SurfaceKHR swapchain.
-	// We capture the valid NormalGame composite once, then replay it during XR passes.
-	[HarmonyPatch(typeof(global::Core.Renderer))]
+    // Because we skip UI rendering, we also need to clear the UiCoverageMaskSystem
+    [HarmonyPatch(typeof(UiCoverageMaskSystem))]
+    [HarmonyPatch(nameof(UiCoverageMaskSystem.RecordMaskGeneration))]
+    internal static class SkipUiCoverageMaskPatch
+    {
+        private static readonly MethodInfo? ensureNeutralMaskClearedMethodInfo = AccessTools.Method(typeof(UiCoverageMaskSystem), "EnsureNeutralMaskCleared");
+        private static readonly FieldInfo? occluderRectsFieldInfo = AccessTools.Field(typeof(UiCoverageMaskSystem), "_occluderRects");
+		private static readonly MethodInfo? clearTileMasksIfNeededMethodInfo = AccessTools.Method(typeof(UiCoverageMaskSystem), "ClearTileMasksIfNeeded");
+
+        static bool Prefix(UiCoverageMaskSystem __instance, CommandBuffer commandBuffer, int frameIndex)
+        {
+            if (XrViewports.Instance.CurrentRenderState == XrViewports.RenderHackPasses.XR) {
+                object[] parameters = new object[] { commandBuffer };
+                ensureNeutralMaskClearedMethodInfo?.Invoke(__instance, parameters);
+                ((List<float4>?)occluderRectsFieldInfo?.GetValue(__instance))?.Clear();
+                clearTileMasksIfNeededMethodInfo?.Invoke(__instance, parameters);
+                return false;
+            }
+            return true;
+        }
+	}
+
+    // This patch is explicitly here to suppress the two blank XR-phase frames that
+    // would otherwise be presented to the game's desktop SurfaceKHR swapchain.
+    // We capture the valid NormalGame composite once, then replay it during XR passes.
+    [HarmonyPatch(typeof(global::Core.Renderer))]
 	[HarmonyPatch("PresentFrame")]
 	internal static class RendererPresentFramePatch
 	{
